@@ -113,6 +113,7 @@ public class Utils {
             "com.liskovsoft.smarttubetv.beta",
             "com.teamsmart.videomanager.tv",
             "org.smarttube.beta",
+            "org.smarttube.fix",
             "org.smarttube.stable",
             "app.smarttube.fdroid",
     };
