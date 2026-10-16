@@ -53,6 +53,8 @@ import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import com.liskovsoft.smartyoutubetv2.common.exoplayer.other.CdnFailoverDataSource;
+
 import okhttp3.OkHttpClient;
 
 public class ExoMediaSourceFactory {
@@ -72,6 +74,7 @@ public class ExoMediaSourceFactory {
     private TrackErrorFixer mTrackErrorFixer;
     private DataSource.Factory mMediaDataSourceFactory;
     private DataSource.Factory mSabrMediaDataSourceFactory;
+    private DataSource.Factory mDashMediaDataSourceFactory;
 
     public ExoMediaSourceFactory(Context context) {
         mContext = context;
@@ -205,7 +208,8 @@ public class ExoMediaSourceFactory {
     private MediaSource buildDashMediaSource(MediaItemFormatInfo formatInfo) {
         // Are you using FrameworkSampleSource or ExtractorSampleSource when you build your player?
         DashMediaSource dashSource = new DashMediaSource.Factory(
-                getDashChunkSourceFactory(),
+                // Live segments may be long-polled by the server, keep the regular read timeout there
+                formatInfo.isLive() ? getLiveDashChunkSourceFactory() : getDashChunkSourceFactory(),
                 null
         )
                 .setLoadErrorHandlingPolicy(new DashDefaultLoadErrorHandlingPolicy())
@@ -366,6 +370,7 @@ public class ExoMediaSourceFactory {
     public void release() {
         mMediaDataSourceFactory = null;
         mSabrMediaDataSourceFactory = null;
+        mDashMediaDataSourceFactory = null;
     }
 
     @NonNull
@@ -379,8 +384,13 @@ public class ExoMediaSourceFactory {
     }
 
     @NonNull
+    private DashChunkSource.Factory getLiveDashChunkSourceFactory() {
+        return new DefaultDashChunkSource.Factory(new CdnFailoverDataSource.Factory(getMediaDataSourceFactory()), MAX_SEGMENTS_PER_LOAD);
+    }
+
+    @NonNull
     private DashChunkSource.Factory getDashChunkSourceFactory() {
-        return new DefaultDashChunkSource.Factory(getMediaDataSourceFactory(), MAX_SEGMENTS_PER_LOAD);
+        return new DefaultDashChunkSource.Factory(getDashMediaDataSourceFactory(), MAX_SEGMENTS_PER_LOAD);
     }
 
     /**
@@ -394,6 +404,18 @@ public class ExoMediaSourceFactory {
         }
 
         return mSabrMediaDataSourceFactory;
+    }
+
+    /**
+     * Regular (non-live) DASH: same short read timeout as SABR plus media network failover.
+     */
+    private DataSource.Factory getDashMediaDataSourceFactory() {
+        if (mDashMediaDataSourceFactory == null) {
+            mDashMediaDataSourceFactory = new CdnFailoverDataSource.Factory(
+                    buildDataSourceFactory(USE_BANDWIDTH_METER, SABR_READ_TIMEOUT_MS));
+        }
+
+        return mDashMediaDataSourceFactory;
     }
 
     private DataSource.Factory getMediaDataSourceFactory() {

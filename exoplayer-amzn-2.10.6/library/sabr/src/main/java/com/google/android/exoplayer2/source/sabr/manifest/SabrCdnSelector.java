@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Map;
 
 /** Selects equivalent Googlevideo media networks advertised by a signed SABR URL. */
-final class SabrCdnSelector {
+public final class SabrCdnSelector {
     private static final String GOOGLEVIDEO_SUFFIX = ".googlevideo.com";
     /**
      * How long a media network that failed to answer stays skipped. Restarting the engine or
@@ -69,6 +69,21 @@ final class SabrCdnSelector {
                 && isFailed(extractNetwork(getHost(candidateUrls.get(selectedIndex))))) {
             selectedIndex++;
         }
+    }
+
+    /**
+     * The url to use instead of the given googlevideo url: the same url on the first advertised
+     * media network (see "mn") that didn't fail recently. Returns the url unchanged otherwise.
+     * Also used by the DASH data source, so both formats share the failed networks.
+     */
+    public static String getHealthyUrl(String url) {
+        String healthyUrl = new SabrCdnSelector(url).getCurrentUrl();
+        return healthyUrl != null ? healthyUrl : url;
+    }
+
+    /** Remember that the network of this googlevideo url doesn't answer. */
+    public static void markFailedUrl(@Nullable String url) {
+        markFailed(getHost(url));
     }
 
     private static void markFailed(@Nullable String host) {
