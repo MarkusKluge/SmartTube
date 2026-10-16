@@ -24,6 +24,7 @@ import com.google.android.exoplayer2.source.sabr.protos.videostreaming.StreamerC
 import com.google.android.exoplayer2.source.sabr.protos.videostreaming.TimeRange;
 import com.google.android.exoplayer2.source.sabr.protos.videostreaming.VideoPlaybackAbrRequest;
 import com.google.protobuf.ByteString;
+import com.liskovsoft.sharedutils.mylogger.Log;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -34,6 +35,7 @@ import java.util.Map;
  * Represents a SABR media presentation
  */
 public class SabrManifest implements FilterableManifest<SabrManifest> {
+    private static final String TAG = SabrManifest.class.getSimpleName();
     /**
      * The {@code availabilityStartTime} value in milliseconds since epoch, or {@link C#TIME_UNSET} if
      * not present.
@@ -207,17 +209,37 @@ public class SabrManifest implements FilterableManifest<SabrManifest> {
      * after another track has already advanced the selector.
      */
     public synchronized boolean maybeUseNextCdn(String failedUrl) {
-        if (!cdnSelector.maybeAdvance(failedUrl)) {
+        String nextUrl;
+
+        if (cdnSelector.maybeAdvance(failedUrl)) {
+            nextUrl = cdnSelector.getCurrentUrl();
+        } else if (cdnSelector.isUnknownHost(failedUrl) && cdnSelector.getCurrentUrl() != null) {
+            // The server redirected us (SabrRedirect) to a network outside the advertised list and that one stalls.
+            // Go back to the advertised network instead of retrying the stalled one forever.
+            SabrCdnSelector.markFailedUrl(failedUrl);
+            nextUrl = cdnSelector.getCurrentUrl();
+            Log.w(TAG, "Redirect target %s failed, back to %s", host(failedUrl), host(nextUrl));
+        } else {
+            Log.w(TAG, "No alternate media network for %s (remaining candidates: %s)",
+                    host(failedUrl), cdnSelector.getRemainingCandidates());
             return false;
         }
 
-        String nextUrl = cdnSelector.getCurrentUrl();
+        Log.w(TAG, "Media network %s failed, switching to %s", host(failedUrl), host(nextUrl));
 
         for (SabrStream sabrStream : sabrStreams.values()) {
             sabrStream.setServerAbrStreamingUrl(nextUrl);
         }
 
         return true;
+    }
+
+    private static String host(String url) {
+        try {
+            return java.net.URI.create(url).getHost();
+        } catch (IllegalArgumentException | NullPointerException e) {
+            return String.valueOf(url);
+        }
     }
 
     public int getSabrRequestNumber() {

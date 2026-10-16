@@ -35,6 +35,16 @@ public final class SabrCdnSelector {
         skipFailedNetworks();
     }
 
+    /** For logs: how many equivalent networks this selector can still fall back to. */
+    public synchronized int getRemainingCandidates() {
+        return Math.max(0, candidateUrls.size() - selectedIndex - 1);
+    }
+
+    /** True when the failed url is on a network this selector doesn't know (e.g. a SabrRedirect target). */
+    public synchronized boolean isUnknownHost(@Nullable String url) {
+        return getHost(url) != null && findCandidateIndex(url) < 0;
+    }
+
     public synchronized @Nullable String getCurrentUrl() {
         return candidateUrls.isEmpty() ? null : candidateUrls.get(selectedIndex);
     }
