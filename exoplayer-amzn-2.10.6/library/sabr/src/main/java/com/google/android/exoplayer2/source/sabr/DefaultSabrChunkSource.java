@@ -128,6 +128,9 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
     private final Map<String, String> sabrHeaders;
     private int nexChunkIdx = -1;
     private long pendingSeekTimeUs = C.TIME_UNSET;
+    private static final long BACKOFF_MIN_BUFFER_US = 10_000_000;
+    private static final long MAX_BACKOFF_WAIT_MS = 15_000;
+    private static final long LOW_BUFFER_BACKOFF_WAIT_MS = 1_000;
 
     /**
      * @param manifestLoaderErrorThrower Throws errors affecting loading of manifests.
@@ -278,6 +281,23 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
     public void getNextChunk(long playbackPositionUs, long loadPositionUs, List<? extends MediaChunk> queue, ChunkHolder out) {
         if (fatalError != null) {
             return;
+        }
+
+        // FIX: honour short NextRequestPolicy.backoff_time_ms. Re-requesting right away makes the server
+        // escalate the backoff (2 -> 4 -> 8 s) and finally fail with "sabr.no_video_selected".
+        // Returning without a chunk lets the loader poll again on the next continueLoading() call.
+        // Only while the buffer is healthy, though: after a seek the server may still see stale
+        // buffered ranges and ask to back off although the player is starving. With a low buffer
+        // keep a 1 s spacing instead, so requests never hammer and playback never stalls on a wait.
+        if (sabrStream != null && !queue.isEmpty()) {
+            long remainingMs = sabrStream.getBackoffRemainingMs();
+            long bufferedUs = loadPositionUs - playbackPositionUs;
+            long waitMs = bufferedUs >= BACKOFF_MIN_BUFFER_US
+                    ? Math.min(remainingMs, MAX_BACKOFF_WAIT_MS)
+                    : Math.min(remainingMs, LOW_BUFFER_BACKOFF_WAIT_MS);
+            if (waitMs > 0 && sabrStream.getMsSinceLastPolicy() < waitMs) {
+                return;
+            }
         }
 
         long bufferedDurationUs = loadPositionUs - playbackPositionUs;

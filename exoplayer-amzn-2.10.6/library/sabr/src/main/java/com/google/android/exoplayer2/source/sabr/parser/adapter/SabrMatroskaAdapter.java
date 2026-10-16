@@ -10,6 +10,7 @@ import com.google.android.exoplayer2.source.sabr.parser.misc.SabrExtractorInput;
 import com.liskovsoft.sharedutils.mylogger.Log;
 
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 
 public class SabrMatroskaAdapter extends MatroskaExtractor {
     private static final String TAG = SabrMatroskaAdapter.class.getSimpleName();
@@ -35,7 +36,21 @@ public class SabrMatroskaAdapter extends MatroskaExtractor {
         } catch (SabrReloadPlayerError | SabrBackoffError e) {
             Log.e(TAG, "Propagating SABR control signal: %s", e.getMessage());
             throw e;
+        } catch (IOException e) {
+            // FIX: a media network that stalls mid-response must reach DefaultSabrChunkSource.onChunkLoadError(),
+            // otherwise the chunk "ends" silently and the same stalled request is repeated forever.
+            if (hasCause(e, SocketTimeoutException.class)) {
+                Log.e(TAG, "Propagating read timeout: %s", e.getMessage());
+                throw e;
+            }
+            Log.e(TAG, "User doing seek? %s: %s", e.getClass().getSimpleName(), e.getMessage());
+            e.printStackTrace();
         } catch (Exception e) {
+            // Same stall, but wrapped by the UMP reader (e.g. IllegalStateException(HttpDataSourceException(SocketTimeoutException))).
+            if (hasCause(e, SocketTimeoutException.class)) {
+                Log.e(TAG, "Propagating wrapped read timeout: %s", e.getMessage());
+                throw new IOException(e);
+            }
             Log.e(TAG, "User doing seek? %s: %s", e.getClass().getSimpleName(), e.getMessage());
             e.printStackTrace();
         } finally {
@@ -46,5 +61,15 @@ public class SabrMatroskaAdapter extends MatroskaExtractor {
         }
 
         return result;
+    }
+
+    private static boolean hasCause(Throwable error, Class<? extends Throwable> type) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (type.isInstance(cause)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

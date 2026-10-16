@@ -70,6 +70,7 @@ public class SabrProcessor {
     private LiveMetadata liveMetadata;
     private long totalDurationMs;
     private NextRequestPolicy nextRequestPolicy;
+    private long nextRequestPolicyTimeMs;
     private final Map<Integer, SabrContextUpdate> sabrContextUpdates;
     private final Set<Integer> sabrContextsToSend;
     private final Map<Integer, MediaHeader> initializedFormats;
@@ -522,6 +523,7 @@ public class SabrProcessor {
 
     public void processNextRequestPolicy(NextRequestPolicy nextRequestPolicy) {
         this.nextRequestPolicy = nextRequestPolicy;
+        this.nextRequestPolicyTimeMs = System.nanoTime() / 1_000_000;
         Log.d(TAG, "Registered new NextRequestPolicy: %s", nextRequestPolicy);
     }
 
@@ -680,6 +682,24 @@ public class SabrProcessor {
         }
 
         return mediaHeader.getDurationMs();
+    }
+
+    /**
+     * Time left until the next request is allowed by the last NextRequestPolicy.backoff_time_ms.
+     */
+    public long getBackoffRemainingMs() {
+        int backoffMs = getBackoffTimeMs();
+
+        if (backoffMs <= 0) {
+            return 0;
+        }
+
+        return Math.max(0, nextRequestPolicyTimeMs + backoffMs - System.nanoTime() / 1_000_000);
+    }
+
+    /** Milliseconds since the last NextRequestPolicy arrived. */
+    public long getMsSinceLastPolicy() {
+        return System.nanoTime() / 1_000_000 - nextRequestPolicyTimeMs;
     }
 
     public int getBackoffTimeMs() {

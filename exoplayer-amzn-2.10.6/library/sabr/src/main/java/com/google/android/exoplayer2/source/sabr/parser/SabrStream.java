@@ -199,6 +199,14 @@ public class SabrStream {
         return processor.getSegmentDurationMs(iTag);
     }
 
+    public long getMsSinceLastPolicy() {
+        return processor.getMsSinceLastPolicy();
+    }
+
+    public long getBackoffRemainingMs() {
+        return processor.getBackoffRemainingMs();
+    }
+
     public int getBackoffTimeMs() {
         return processor.getBackoffTimeMs();
     }
