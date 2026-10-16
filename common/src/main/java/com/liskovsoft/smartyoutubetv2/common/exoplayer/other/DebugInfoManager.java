@@ -21,6 +21,12 @@ import com.google.android.exoplayer2.PlaybackParameters;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.Timeline;
+import com.google.android.exoplayer2.analytics.AnalyticsListener;
+import com.google.android.exoplayer2.source.MediaSourceEventListener.LoadEventInfo;
+import com.google.android.exoplayer2.source.MediaSourceEventListener.MediaLoadData;
+import android.graphics.Typeface;
+import java.util.ArrayDeque;
+import java.util.Iterator;
 import com.google.android.exoplayer2.decoder.DecoderCounters;
 import com.google.android.exoplayer2.mediacodec.MediaCodecInfo;
 import com.google.android.exoplayer2.source.TrackGroupArray;
@@ -76,6 +82,39 @@ public final class DebugInfoManager implements Runnable, Player.EventListener {
     private final List<Pair<String, String>> mDisplayModeId = new ArrayList<>();
     private final List<Pair<String, String>> mDisplayInfo = new ArrayList<>();
     private final String mAppVersion;
+    // Claude variant: measured network data rate, shown in the same green as the app icon
+    private static final int CLAUDE_GREEN = Color.parseColor("#3AEA56");
+    private static final long RATE_HISTORY_MS = 60_000;
+    private final ArrayDeque<LoadSample> mLoadSamples = new ArrayDeque<>();
+    private final AnalyticsListener mLoadListener = new AnalyticsListener() {
+        @Override
+        public void onLoadCompleted(EventTime eventTime, LoadEventInfo loadEventInfo, MediaLoadData mediaLoadData) {
+            if (mediaLoadData.dataType != C.DATA_TYPE_MEDIA || loadEventInfo.bytesLoaded <= 0) {
+                return;
+            }
+
+            long mediaDurationMs = mediaLoadData.mediaStartTimeMs != C.TIME_UNSET && mediaLoadData.mediaEndTimeMs != C.TIME_UNSET ?
+                    mediaLoadData.mediaEndTimeMs - mediaLoadData.mediaStartTimeMs : 0;
+            addLoadSample(new LoadSample(System.currentTimeMillis(), loadEventInfo.bytesLoaded,
+                    Math.max(0, mediaDurationMs), loadEventInfo.loadDurationMs, mediaLoadData.trackType));
+        }
+    };
+
+    private static final class LoadSample {
+        final long wallTimeMs;
+        final long bytes;
+        final long mediaDurationMs;
+        final long loadDurationMs;
+        final int trackType;
+
+        LoadSample(long wallTimeMs, long bytes, long mediaDurationMs, long loadDurationMs, int trackType) {
+            this.wallTimeMs = wallTimeMs;
+            this.bytes = bytes;
+            this.mediaDurationMs = mediaDurationMs;
+            this.loadDurationMs = loadDurationMs;
+            this.trackType = trackType;
+        }
+    }
 
     /**
      * @param debugViewGroup The container that should be updated to display the information.
@@ -90,6 +129,8 @@ public final class DebugInfoManager implements Runnable, Player.EventListener {
         mTextSize = mContext.getResources().getDimension(R.dimen.debug_text_size);
         mAppVersion = String.format("%s version", mContext.getString(R.string.app_name));
         inflate();
+        // Collect from the start, so the averages are ready when the overlay is opened
+        mPlayer.addAnalyticsListener(mLoadListener);
     }
 
     private void inflate() {
@@ -203,6 +244,7 @@ public final class DebugInfoManager implements Runnable, Player.EventListener {
         updateRareChangedValues();
 
         appendVideoInfo();
+        appendDataRate();
         appendRuntimeInfo();
         appendPlayerState();
         appendDisplayInfo();
@@ -283,6 +325,108 @@ public final class DebugInfoManager implements Runnable, Player.EventListener {
 
             mVideoInfo.add(new Pair<>("Transfer/Space/Range", transferFunction + "/" + colorSpace + "/" + colorRange));
         }
+    }
+
+    private synchronized void addLoadSample(LoadSample sample) {
+        mLoadSamples.addLast(sample);
+        pruneLoadSamples(sample.wallTimeMs);
+    }
+
+    private void pruneLoadSamples(long nowMs) {
+        while (!mLoadSamples.isEmpty() && nowMs - mLoadSamples.peekFirst().wallTimeMs > RATE_HISTORY_MS) {
+            mLoadSamples.removeFirst();
+        }
+    }
+
+    /**
+     * Stream data rate: bytes per second of media, summed over the video and audio tracks.
+     * Live: what the stream actually costs, independent of how fast the network delivers it.
+     */
+    private synchronized long getStreamBitrate(long windowMs) {
+        long nowMs = System.currentTimeMillis();
+        pruneLoadSamples(nowMs);
+        long total = 0;
+
+        for (int trackType : new int[] {C.TRACK_TYPE_VIDEO, C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_DEFAULT}) {
+            long bytes = 0;
+            long mediaMs = 0;
+            Iterator<LoadSample> it = mLoadSamples.descendingIterator();
+            while (it.hasNext()) {
+                LoadSample sample = it.next();
+                if (sample.trackType != trackType || sample.mediaDurationMs <= 0) {
+                    continue;
+                }
+                // windowMs == 0: the most recent chunk only ("now")
+                if (windowMs > 0 && nowMs - sample.wallTimeMs > windowMs && mediaMs > 0) {
+                    break;
+                }
+                bytes += sample.bytes;
+                mediaMs += sample.mediaDurationMs;
+                if (windowMs == 0) {
+                    break;
+                }
+            }
+            if (mediaMs > 0) {
+                total += bytes * 8_000 / mediaMs;
+            }
+        }
+
+        return total;
+    }
+
+    /** Network download speed while chunks were loading. */
+    private synchronized long getDownloadSpeed(long windowMs) {
+        long nowMs = System.currentTimeMillis();
+        long bytes = 0;
+        long loadMs = 0;
+        Iterator<LoadSample> it = mLoadSamples.descendingIterator();
+        while (it.hasNext()) {
+            LoadSample sample = it.next();
+            if (windowMs > 0 && nowMs - sample.wallTimeMs > windowMs && loadMs > 0) {
+                break;
+            }
+            bytes += sample.bytes;
+            loadMs += sample.loadDurationMs;
+            if (windowMs == 0) {
+                break;
+            }
+        }
+
+        return loadMs > 0 ? bytes * 8_000 / loadMs : -1;
+    }
+
+    private void appendDataRate() {
+        long now = getStreamBitrate(0);
+
+        if (now <= 0) {
+            return;
+        }
+
+        appendGreenRow("Data rate (now/Ø10s/Ø30s)", String.format("%s / %s / %s",
+                toMbit(now), toMbit(getStreamBitrate(10_000)), toMbit(getStreamBitrate(30_000))));
+        appendGreenRow("Download speed (last/Ø10s)", String.format("%s / %s",
+                toMbit(getDownloadSpeed(0)), toMbit(getDownloadSpeed(10_000))));
+    }
+
+    private static String toMbit(long bitsPerSecond) {
+        if (bitsPerSecond < 0) {
+            return NOT_AVAILABLE;
+        }
+
+        return String.format(Locale.ENGLISH, "%.1f Mbit/s", bitsPerSecond / 1_000_000f);
+    }
+
+    private void appendGreenRow(String name, CharSequence val) {
+        appendNameColumn(styleGreen(createTextView(name)));
+        appendValueColumn(styleGreen(createTextView(val)));
+    }
+
+    private TextView styleGreen(TextView textView) {
+        textView.setTextColor(CLAUDE_GREEN);
+        textView.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        // Dark rim keeps it readable on bright video
+        textView.setShadowLayer(4f, 0f, 0f, Color.BLACK);
+        return textView;
     }
 
     private void appendRuntimeInfo() {
