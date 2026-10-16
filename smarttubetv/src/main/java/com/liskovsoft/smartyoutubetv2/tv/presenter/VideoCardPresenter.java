@@ -136,7 +136,7 @@ public class VideoCardPresenter extends LongClickPresenter {
                 video.badge
         );
         cardView.setBadgeColor(video.hasNewContent || video.isLive || video.isUpcoming ?
-                ContextCompat.getColor(context, R.color.dark_red) : ContextCompat.getColor(context, R.color.black));
+                ContextCompat.getColor(context, MainUIData.instance(context).isClaudeColorScheme() ? R.color.dark_claude_green : R.color.dark_red) : ContextCompat.getColor(context, R.color.black));
 
         if (mCardPreviewType != MainUIData.CARD_PREVIEW_DISABLED) {
             cardView.setPreview(video);

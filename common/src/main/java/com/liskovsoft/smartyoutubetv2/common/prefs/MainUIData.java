@@ -421,6 +421,17 @@ public class MainUIData extends DataChangeBase implements ProfileChangeListener 
                 "App.Theme.Leanback.Blue.OLED.Browse",
                 "App.Theme.Leanback.Blue.Preferences",
                 mContext));
+        // Claude variant (appended, so the saved index of the other schemes stays valid)
+        mColorSchemes.add(new ColorScheme(
+                R.string.color_scheme_claude,
+                "App.Theme.Claude.Player",
+                "App.Theme.Claude.Browse",
+                "App.Theme.Claude.Preferences",
+                mContext));
+    }
+
+    public boolean isClaudeColorScheme() {
+        return getColorScheme().nameResId == R.string.color_scheme_claude;
     }
 
     private void restoreState() {

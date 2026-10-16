@@ -41,6 +41,9 @@
     <color name="scheme_red_background_dark">@color/dark_red</color>
     <color name="scheme_red_shelf_background_dark">#131313</color>
     <color name="scheme_red_card_background_dark">#36474f</color>
+    <color name="scheme_claude_background_dark">@color/dark_claude_green</color>
+    <color name="scheme_claude_shelf_background_dark">#121412</color>
+    <color name="scheme_claude_card_background_dark">#2E3A31</color>
 
     <!-- Blue color scheme -->
     <color name="scheme_blue_background">#33B5E5</color>

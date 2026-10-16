@@ -168,6 +168,38 @@
     </style>
     <!--  End Color scheme: Red -->
 
+    <!--  Color scheme: Claude (green instead of YouTube red) -->
+    <style name="App.Theme.Claude.Player" parent="App.Theme.Leanback.Player">
+        <item name="playbackProgressPrimaryColor">@color/claude_green</item>
+        <item name="playbackProgressSecondaryColor">@color/light_claude_green</item>
+        <item name="playbackControlsIconHighlightColor">@color/claude_green</item>
+        <item name="cardProgressStyle">@style/ProgressBarHorizontal.Claude</item>
+        <item name="shelfBackground">@color/scheme_claude_shelf_background_dark</item>
+        <item name="cardDefaultBackground">@color/scheme_claude_card_background_dark</item>
+        <item name="android:colorAccent" tools:targetApi="21">@color/claude_green</item>
+    </style>
+    <style name="App.Theme.Claude.Browse" parent="App.Theme.Leanback.Browse">
+        <item name="android:windowBackground">@color/scheme_claude_shelf_background_dark</item>
+        <item name="brandColor">@color/scheme_claude_background_dark</item>
+        <item name="brandAccentColor">@color/claude_green</item>
+        <item name="cardProgressStyle">@style/ProgressBarHorizontal.Claude</item>
+        <item name="shelfBackground">@color/scheme_claude_shelf_background_dark</item>
+        <item name="cardDefaultBackground">@color/scheme_claude_card_background_dark</item>
+        <item name="appLogo">@mipmap/app_logo_claude</item>
+    </style>
+    <style name="App.Theme.Claude.Preferences" parent="App.Theme.Leanback.Preferences">
+        <item name="android:colorPrimary" tools:targetApi="21">@color/scheme_claude_background_dark</item>
+        <item name="android:colorAccent" tools:targetApi="21">@color/claude_green</item>
+    </style>
+    <style name="App.Theme.Claude.GuidedStep" parent="App.Theme.Leanback.GuidedStep">
+        <item name="android:windowBackground">@color/scheme_claude_shelf_background_dark</item>
+        <item name="shelfBackground">@color/scheme_claude_shelf_background_dark</item>
+    </style>
+    <style name="ProgressBarHorizontal.Claude" parent="@android:style/Widget.ProgressBar.Horizontal">
+        <item name="android:progressDrawable">@drawable/progress_bar_claude_green</item>
+    </style>
+    <!--  End Color scheme: Claude -->
+
     <!--  Color scheme: Dark Grey (OLED)  -->
     <style name="App.Theme.DarkGrey.OLED.Browse" parent="App.Theme.DarkGrey.Browse">
         <item name="brandAccentColor">@color/semi_transparent</item>

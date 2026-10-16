@@ -8,6 +8,10 @@
     <color name="red">#FF0000</color>
     <color name="semi_red">#E52D27</color>
     <color name="light_red">#FF8080</color>
+    <!-- Claude variant: green instead of YouTube red (same hue as the app icon) -->
+    <color name="claude_green">#2FD655</color>
+    <color name="light_claude_green">#9BEFAE</color>
+    <color name="dark_claude_green">#1B6E2A</color>
     <color name="dark_red">#B31217</color>
     <color name="transparent">#00FFFFFF</color>
     <color name="light_blue">#2793E6</color>

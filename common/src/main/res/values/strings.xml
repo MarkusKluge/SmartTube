@@ -96,6 +96,7 @@
     <string name="color_scheme_default">Default</string>
     <string name="color_scheme_red_grey">Red-grey</string>
     <string name="color_scheme_red">Red</string>
+    <string name="color_scheme_claude">Claude green</string>
     <string name="color_scheme_dark_grey">Dark Grey</string>
     <string name="disable_update_check">Disable update check</string>
     <string name="show_again">Show again</string>
