@@ -7,6 +7,7 @@ import com.liskovsoft.sharedutils.helpers.Helpers;
 import com.liskovsoft.sharedutils.mylogger.Log;
 
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 
 public class SabrDefaultLoadErrorHandlingPolicy extends DashDefaultLoadErrorHandlingPolicy {
     private static final String TAG = SabrDefaultLoadErrorHandlingPolicy.class.getSimpleName();
@@ -40,6 +41,24 @@ public class SabrDefaultLoadErrorHandlingPolicy extends DashDefaultLoadErrorHand
             return C.TIME_UNSET; // fatal, no retry. Propagate to ErrorFixerController
         }
 
+        // A read timeout means the media network stalled. Retrying the same chunk goes to the very same
+        // host again (its url is fixed) and stalls again for every retry. The chunk source already moved
+        // away from that network, so reload right away and continue on the healthy one.
+        if (hasCause(exception, SocketTimeoutException.class)) {
+            Log.e(TAG, "Media network stalled (read timeout), reloading instead of retrying, errorCount: " + errorCount);
+            return C.TIME_UNSET; // fatal, no retry. Propagate to ErrorFixerController
+        }
+
         return super.getRetryDelayMsFor(dataType, loadDurationMs, exception, errorCount);
+    }
+
+    private static boolean hasCause(Throwable error, Class<? extends Throwable> type) {
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (type.isInstance(cause)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

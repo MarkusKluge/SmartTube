@@ -499,7 +499,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
 
     @Override
     public boolean onChunkLoadError(Chunk chunk, boolean cancelable, Exception e, long blacklistDurationMs) {
-        Log.e(TAG, "Chunk load failed: " + e.getMessage());
+        Log.e(TAG, "Chunk load failed (" + chunk.dataSpec.uri.getHost() + ", cancelable=" + cancelable + ", bytes=" + chunk.bytesLoaded() + "): " + e.getMessage());
 
         // A reload request is not a transport failure. Handing it back as "handled" would
         // retry the very same request at full speed. Let it fall through to the
@@ -510,17 +510,26 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
             return false;
         }
 
-        if (!cancelable) {
-            return false;
-        }
         if (!(chunk instanceof SingleSampleMediaChunk) && isEndpointConnectionFailure(chunk, e)) {
-            if (manifest.maybeUseNextCdn(chunk.dataSpec.uri.toString())) {
+            boolean switched = manifest.maybeUseNextCdn(chunk.dataSpec.uri.toString());
+
+            // FIX: a stall in the middle of a chunk the player already reads from can't be cancelled.
+            // Still move away from the stalled network: the next requests (and the reload after the
+            // error policy gives up) go to the alternate one instead of the same stalled host.
+            if (!cancelable) {
+                return false;
+            }
+
+            if (switched) {
                 Log.w(TAG, "Retrying SABR request on an alternate media network");
                 return true;
             }
 
             // All representations use the same SABR endpoint. Do not rapidly
             // blacklist qualities when the endpoint itself is unreachable.
+            return false;
+        }
+        if (!cancelable) {
             return false;
         }
         if (playerTrackEmsgHandler != null
