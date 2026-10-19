@@ -22,6 +22,15 @@ public final class SabrCdnSelector {
      */
     private static final long FAILED_NETWORK_TTL_MS = 30 * 60 * 1_000;
     private static final Map<String, Long> sFailedNetworks = new HashMap<>();
+    /**
+     * ISP-hosted cache networks (Google Global Cache) that are only used when nothing else is left.
+     * The Deutsche Telekom node regularly stalls on uncached ranges or refuses connections, while the
+     * equivalent Google networks advertised next to it work. Trying it first costs a timeout after
+     * every app start.
+     */
+    private static final String[] DEPRIORITIZED_NETWORK_PREFIXES = {
+            "sn-bvvbaxivnuxqqu5b-" // Deutsche Telekom (AS3320)
+    };
     private final List<String> candidateUrls = new ArrayList<>();
     private int selectedIndex;
 
@@ -32,6 +41,7 @@ public final class SabrCdnSelector {
 
         candidateUrls.add(initialUrl);
         addAlternateUrls(initialUrl);
+        moveDeprioritizedNetworksLast();
         skipFailedNetworks();
     }
 
@@ -71,6 +81,39 @@ public final class SabrCdnSelector {
         markFailed(getHost(failedUrl));
         selectedIndex++;
         return true;
+    }
+
+    private void moveDeprioritizedNetworksLast() {
+        List<String> deprioritized = new ArrayList<>();
+
+        for (String url : candidateUrls) {
+            if (isDeprioritized(extractNetwork(getHost(url)))) {
+                deprioritized.add(url);
+            }
+        }
+
+        // Keep the original url if every candidate is deprioritized
+        if (deprioritized.isEmpty() || deprioritized.size() == candidateUrls.size()) {
+            return;
+        }
+
+        candidateUrls.removeAll(deprioritized);
+        candidateUrls.addAll(deprioritized);
+    }
+
+    @VisibleForTesting
+    static boolean isDeprioritized(@Nullable String network) {
+        if (network == null) {
+            return false;
+        }
+
+        for (String prefix : DEPRIORITIZED_NETWORK_PREFIXES) {
+            if (network.startsWith(prefix)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void skipFailedNetworks() {

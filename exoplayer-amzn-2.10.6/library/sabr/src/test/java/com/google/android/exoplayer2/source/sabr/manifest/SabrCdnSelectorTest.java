@@ -116,4 +116,25 @@ public class SabrCdnSelectorTest {
 
         assertEquals(other, new SabrCdnSelector(other).getCurrentUrl());
     }
+
+    @Test
+    public void telekomCacheIsOnlyUsedAsLastResort() {
+        String ggc = "https://rr2---sn-bvvbaxivnuxqqu5b-4g5l.googlevideo.com/videoplayback?"
+                + "mn=sn-bvvbaxivnuxqqu5b-4g5l%2Csn-4g5ednks&sig=signed";
+        String google = "https://rr2---sn-4g5ednks.googlevideo.com/videoplayback?"
+                + "mn=sn-bvvbaxivnuxqqu5b-4g5l%2Csn-4g5ednks&sig=signed";
+        SabrCdnSelector selector = new SabrCdnSelector(ggc);
+
+        assertEquals(google, selector.getCurrentUrl());
+        assertTrue(selector.maybeAdvance(google));
+        assertEquals(ggc, selector.getCurrentUrl());
+        assertFalse(selector.maybeAdvance(ggc));
+    }
+
+    @Test
+    public void telekomCacheIsKeptWhenItIsTheOnlyNetwork() {
+        String ggc = "https://rr2---sn-bvvbaxivnuxqqu5b-4g5l.googlevideo.com/videoplayback?sig=signed";
+
+        assertEquals(ggc, new SabrCdnSelector(ggc).getCurrentUrl());
+    }
 }
