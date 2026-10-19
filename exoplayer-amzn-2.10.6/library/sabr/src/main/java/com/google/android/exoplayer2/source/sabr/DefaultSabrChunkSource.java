@@ -734,8 +734,14 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
         long sampleOffsetUs = -representation.presentationTimeOffsetUs;
         Log.e(TAG, "Load media chunk: track=" + trackType + ", rn=" + manifest.getSabrRequestNumber()
                 + ", startTimeMs=" + startTimeMs + ", backoffTimeMs=" + sabrStream.getBackoffTimeMs());
+        // FIX: a media network that trickles (e.g. 1 Mbit/s for a 9 Mbit/s format) never times out,
+        // the buffer just drains. Fail it like a read timeout when it delivers less than a quarter of the bitrate
+        // (the declared bitrate is a peak value, half of it is still playable).
+        // Not for live: at the live edge the server holds the response until the next segment exists.
+        DataSource guardedDataSource = trackFormat.bitrate > 0 && !manifest.dynamic
+                ? new SlowNetworkGuardDataSource(dataSource, trackFormat.bitrate / 4) : dataSource;
         return new ContainerMediaChunk(
-                dataSource,
+                guardedDataSource,
                 dataSpec,
                 trackFormat,
                 trackSelectionReason,
