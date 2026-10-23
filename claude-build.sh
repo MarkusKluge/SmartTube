@@ -17,9 +17,9 @@ cp "$KEYS/keystore.properties" keystore.properties   # ignored via .git/info/exc
 mkdir -p "$GRADLE_CACHE"
 git submodule update --init -q
 
-# Server has 8 GB: cap the container at 3 GB, 2 workers, in-process Kotlin
+# Server has 8 GB: cap the container (3 GB got OOM-killed on a cold cache), 2 workers, in-process Kotlin
 docker rm -f st-build >/dev/null 2>&1 || true
-docker run -d --name st-build --memory=3g \
+docker run -d --name st-build --memory="${SMARTTUBE_BUILD_MEM:-4g}" \
     -v "$PWD":/src -v "$KEYS":/keys:ro -v "$GRADLE_CACHE":/root/.gradle -w /src \
     -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" "$IMAGE" \
     bash -c 'bash ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process \
