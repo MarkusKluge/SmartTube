@@ -22,6 +22,34 @@ UPSTREAM_BASE=$(git merge-base HEAD upstream/master 2>/dev/null || true)
 UPSTREAM_COMMIT=$(git log -1 --format=%h "${UPSTREAM_BASE:-HEAD}")
 UPSTREAM_TIME=$(git log -1 --format=%ct "${UPSTREAM_BASE:-HEAD}")
 
+# Changelog for the sidebar dialog (generated into the APK assets on every build, never committed):
+# <unix time>\t<L=local|U=upstream|V=version bump>\t<ST|MSC>\t<hash>\t<subject|versionName>
+NOISE='^(Merge |(upd|tr|bump)( |:|$)|chore: update (translation|MediaServiceCore|SharedModules)|Update .*(strings|localization|translation)|.*strings\.xml)'
+changelog() { # <repo dir> <tag> <upstream url>
+    local dir=$1 tag=$2 url=$3 base
+    git -C "$dir" remote get-url upstream >/dev/null 2>&1 || git -C "$dir" remote add upstream "$url"
+    git -C "$dir" fetch -q upstream 2>/dev/null || true
+    base=$(git -C "$dir" merge-base HEAD upstream/master 2>/dev/null) || return 0
+    git -C "$dir" log --no-merges --format="%at%x09L%x09$tag%x09%h%x09%s" "$base..HEAD"
+    git -C "$dir" log --no-merges --since=120.days --format="%at%x09U%x09$tag%x09%h%x09%s" "$base" \
+        | NOISE="$NOISE" awk -F'\t' '$5 !~ ENVIRON["NOISE"]'
+}
+versions() { # when versionName changed (upstream "bump"), so the dialog can group by app version
+    local base h
+    base=$(git merge-base HEAD upstream/master 2>/dev/null) || return 0
+    git log --since=150.days --format='%at %h' -G'versionName "' "$base" -- smarttubetv/build.gradle |
+        while read -r t h; do
+            printf '%s\tV\tST\t%s\t%s\n' "$t" "$h" "$(git show "$h:smarttubetv/build.gradle" | sed -n 's/.*versionName "\(.*\)".*/\1/p' | head -1)"
+        done
+}
+CHANGELOG_DIR=smarttubetv/build/generated/claude_assets
+mkdir -p "$CHANGELOG_DIR"
+{ changelog . ST https://github.com/yuliskov/SmartTube.git
+  versions
+  changelog MediaServiceCore MSC https://github.com/yuliskov/MediaServiceCore.git
+} | sort -t$'\t' -k1,1nr > "$CHANGELOG_DIR/claude_changelog.tsv"
+echo "changelog: $(wc -l < "$CHANGELOG_DIR/claude_changelog.tsv") entries"
+
 # Server has 8 GB: cap the container (3 GB got OOM-killed on a cold cache), 2 workers, in-process Kotlin
 docker rm -f st-build >/dev/null 2>&1 || true
 docker run -d --name st-build --memory="${SMARTTUBE_BUILD_MEM:-4g}" \

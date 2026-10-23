@@ -3,6 +3,9 @@ package com.liskovsoft.smartyoutubetv2.tv.ui.mod.leanback.headers;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.os.Bundle;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -80,8 +83,31 @@ public class ExtendedHeadersSupportFragment extends HeadersSupportFragment {
 
         mBuildInfo = new LinearLayout(context);
         mBuildInfo.setOrientation(LinearLayout.VERTICAL);
-        mBuildInfo.setFocusable(false);
         mBuildInfo.setVisibility(View.INVISIBLE);
+        int pad = dp(context, 8);
+        mBuildInfo.setPadding(pad, pad / 2, pad, pad);
+        // Selectable: down from Settings, OK opens the changelog
+        mBuildInfo.setFocusable(true);
+        mBuildInfo.setClickable(true);
+        GradientDrawable focused = new GradientDrawable();
+        focused.setCornerRadius(dp(context, 8));
+        focused.setColor(Color.parseColor("#262FD655"));
+        focused.setStroke(Math.max(1, dp(context, 1)), green);
+        StateListDrawable background = new StateListDrawable();
+        background.addState(new int[] {android.R.attr.state_focused}, focused);
+        background.addState(new int[] {}, new ColorDrawable(Color.TRANSPARENT));
+        mBuildInfo.setBackground(background);
+        mBuildInfo.setOnClickListener(v -> ClaudeChangelogDialog.show(v.getContext()));
+        mBuildInfo.setOnKeyListener((v, keyCode, event) -> {
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN && getVerticalGridView() != null) {
+                    getVerticalGridView().requestFocus();
+                }
+                return true;
+            }
+            // nothing below or to the left
+            return keyCode == KeyEvent.KEYCODE_DPAD_DOWN || keyCode == KeyEvent.KEYCODE_DPAD_LEFT;
+        });
 
         View divider = new View(context);
         divider.setBackgroundColor(Color.parseColor("#33FFFFFF"));
@@ -136,7 +162,7 @@ public class ExtendedHeadersSupportFragment extends HeadersSupportFragment {
         anchor.getLocationInWindow(anchorPos);
         item.getLocationInWindow(itemPos);
 
-        mBuildInfo.setTranslationX(anchorPos[0] - rootPos[0]);
+        mBuildInfo.setTranslationX(anchorPos[0] - rootPos[0] - mBuildInfo.getPaddingLeft());
         mBuildInfo.setTranslationY(itemPos[1] - rootPos[1] + item.getHeight() + dp(root.getContext(), 10));
         mBuildInfo.setVisibility(View.VISIBLE);
     }
@@ -196,6 +222,16 @@ public class ExtendedHeadersSupportFragment extends HeadersSupportFragment {
 
                     // NEW CODE
                     headerView.setOnKeyListener((v, keyCode, event) -> {
+                        // Claude variant: down from the last item (Settings) goes to the build info block
+                        if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN && mBuildInfo != null && mBuildInfo.getVisibility() == View.VISIBLE
+                                && getVerticalGridView() != null && getVerticalGridView().getAdapter() != null
+                                && viewHolder.getAdapterPosition() == getVerticalGridView().getAdapter().getItemCount() - 1) {
+                            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                                mBuildInfo.requestFocus();
+                            }
+                            return true;
+                        }
+
                         if (mOnHeaderLongPressedListener != null) {
                             if (KeyHelpers.isMenuKey(keyCode)) {
                                 if (event.getAction() == KeyEvent.ACTION_DOWN) {
