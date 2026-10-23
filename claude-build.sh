@@ -17,12 +17,18 @@ cp "$KEYS/keystore.properties" keystore.properties   # ignored via .git/info/exc
 mkdir -p "$GRADLE_CACHE"
 git submodule update --init -q
 
+# Newest upstream (yuliskov) commit contained in this build, shown in the sidebar
+UPSTREAM_BASE=$(git merge-base HEAD upstream/master 2>/dev/null || true)
+UPSTREAM_COMMIT=$(git log -1 --format=%h "${UPSTREAM_BASE:-HEAD}")
+UPSTREAM_TIME=$(git log -1 --format=%ct "${UPSTREAM_BASE:-HEAD}")
+
 # Server has 8 GB: cap the container (3 GB got OOM-killed on a cold cache), 2 workers, in-process Kotlin
 docker rm -f st-build >/dev/null 2>&1 || true
 docker run -d --name st-build --memory="${SMARTTUBE_BUILD_MEM:-4g}" \
     -v "$PWD":/src -v "$KEYS":/keys:ro -v "$GRADLE_CACHE":/root/.gradle -w /src \
     -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" "$IMAGE" \
     bash -c 'bash ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process \
+        -PclaudeUpstreamCommit='"$UPSTREAM_COMMIT"' -PclaudeUpstreamTime='"$UPSTREAM_TIME"' \
         :smarttubetv:assembleStbetaRelease -x lint > /src/build.log 2>&1; rc=$?; \
         chown -R "$HOST_UID:$HOST_GID" /src /root/.gradle; echo "EXIT=$rc" >> /src/build.log; exit $rc' >/dev/null
 echo "build running in container st-build, log: $PWD/build.log"

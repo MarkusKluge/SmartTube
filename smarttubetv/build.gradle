@@ -61,6 +61,9 @@ android {
         versionName "32.68"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "long", "TIMESTAMP", System.currentTimeMillis() + "L"
+        // Claude variant: newest upstream (yuliskov) commit in this build, passed by claude-build.sh
+        buildConfigField "String", "CLAUDE_UPSTREAM_COMMIT", "\"" + (project.findProperty("claudeUpstreamCommit") ?: "") + "\""
+        buildConfigField "long", "CLAUDE_UPSTREAM_TIME", (project.findProperty("claudeUpstreamTime") ?: "0") + "000L"
 
         // More info: http://myhexaville.com/2017/03/10/android-multidex/
         // Additionally, you should extend your application from MultiDexApplication
