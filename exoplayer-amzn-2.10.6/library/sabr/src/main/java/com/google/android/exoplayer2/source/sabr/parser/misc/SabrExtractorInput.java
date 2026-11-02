@@ -17,6 +17,7 @@ public final class SabrExtractorInput implements ExtractorInput {
     private static final String TAG = SabrExtractorInput.class.getSimpleName();
     private static final boolean ALLOW_END_OF_INPUT = true;
     private static final int MIN_SWALLOW_BACKOFF_MS = 15_000; // 15 sec
+    private static final int MAX_BACKOFF_SLEEP_MS = 1_000;
     private static final int LIVE_EMPTY_RESPONSE_WAIT_MS = 1_000;
     private final SabrStream sabrStream;
     private ExtractorInput input;
@@ -195,7 +196,10 @@ public final class SabrExtractorInput implements ExtractorInput {
                     // Server backoff is too long: reload the format rather than wait.
                     throwBackoffRequested(backoffMs);
                 } else if (backoffMs > 0) {
-                    Thread.sleep(backoffMs);
+                    // LOCAL: at most a short pause here. The buffer level is unknown at this point, and right
+                    // after a seek the server may still ask to back off although the player is starving.
+                    // DefaultSabrChunkSource holds back the next request for the full backoff while the buffer is healthy.
+                    Thread.sleep(Math.min(backoffMs, MAX_BACKOFF_SLEEP_MS));
                 } else if (!receivedData && sabrStream.isLive()) {
                     // Live head: the server has nothing new yet. It's not the end of the stream.
                     // Wait a bit, otherwise the empty responses are requested in a tight loop.
