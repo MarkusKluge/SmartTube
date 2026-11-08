@@ -87,6 +87,10 @@ public class SabrManifest implements FilterableManifest<SabrManifest> {
 
     private final String videoId;
     private final SabrCdnSelector cdnSelector;
+    /** Failed SabrRedirect targets tolerated before leaving the advertised network that sent them. */
+    private static final int MAX_FAILED_REDIRECTS_PER_NETWORK = 1;
+    private int failedRedirects;
+    @Nullable private String lastFailedRedirectUrl;
     private final String videoPlaybackUstreamerConfig;
     private final String poToken;
     private final ClientInfo clientInfo;
@@ -217,6 +221,26 @@ public class SabrManifest implements FilterableManifest<SabrManifest> {
             // The server redirected us (SabrRedirect) to a network outside the advertised list and that one stalls.
             // Go back to the advertised network instead of retrying the stalled one forever.
             SabrCdnSelector.markFailedUrl(failedUrl);
+
+            if (!failedUrl.equals(lastFailedRedirectUrl)) { // audio and video fail on the same redirect at once
+                lastFailedRedirectUrl = failedUrl;
+                failedRedirects++;
+            }
+
+            // The advertised network keeps redirecting to broken targets: move on to the next one
+            // instead of bouncing between it and the redirect target.
+            if (failedRedirects > MAX_FAILED_REDIRECTS_PER_NETWORK) {
+                String currentUrl = cdnSelector.getCurrentUrl();
+
+                if (!cdnSelector.maybeAdvance(currentUrl)) {
+                    Log.w(TAG, "Redirect target %s failed again, no alternate media network for %s",
+                            host(failedUrl), host(currentUrl));
+                    return false;
+                }
+
+                failedRedirects = 0;
+            }
+
             nextUrl = cdnSelector.getCurrentUrl();
             Log.w(TAG, "Redirect target %s failed, back to %s", host(failedUrl), host(nextUrl));
         } else {

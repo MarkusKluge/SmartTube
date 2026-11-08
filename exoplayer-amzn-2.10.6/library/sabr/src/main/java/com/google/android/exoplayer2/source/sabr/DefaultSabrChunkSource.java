@@ -555,7 +555,13 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
     }
 
     private static boolean isEndpointConnectionFailure(Chunk chunk, Exception error) {
-        if (!(error instanceof IOException) || error instanceof InvalidResponseCodeException) {
+        if (error instanceof InvalidResponseCodeException) {
+            // FIX: a 5xx before any byte means the media network itself is broken (e.g. a SabrRedirect
+            // to redirector.googlevideo.com whose target network doesn't exist answers every request
+            // with 500). 4xx stays a request problem (signature, PoToken) that another network won't fix.
+            return ((InvalidResponseCodeException) error).responseCode >= 500 && chunk.bytesLoaded() == 0;
+        }
+        if (!(error instanceof IOException)) {
             return false;
         }
 

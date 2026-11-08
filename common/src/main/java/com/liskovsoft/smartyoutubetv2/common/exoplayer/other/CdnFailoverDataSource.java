@@ -133,7 +133,9 @@ public final class CdnFailoverDataSource implements DataSource {
 
     private static boolean isNetworkFailure(IOException error) {
         if (error instanceof InvalidResponseCodeException) {
-            return false; // the network answered (e.g. 403), switching it won't help
+            // 4xx: the network answered (e.g. 403), switching it won't help.
+            // 5xx: the network itself is broken, the next advertised one may work.
+            return ((InvalidResponseCodeException) error).responseCode >= 500;
         }
 
         for (Throwable cause = error; cause != null; cause = cause.getCause()) {
