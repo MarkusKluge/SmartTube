@@ -18,6 +18,7 @@ import com.google.android.exoplayer2.source.chunk.ChunkExtractorWrapper;
 import com.google.android.exoplayer2.source.chunk.ChunkHolder;
 import com.google.android.exoplayer2.source.chunk.ContainerMediaChunk;
 import com.google.android.exoplayer2.source.chunk.InitializationChunk;
+import com.google.android.exoplayer2.util.LoadingStatus;
 import com.google.android.exoplayer2.source.chunk.MediaChunk;
 import com.google.android.exoplayer2.source.chunk.MediaChunkIterator;
 import com.google.android.exoplayer2.source.chunk.SingleSampleMediaChunk;
@@ -499,6 +500,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
     @Override
     public boolean onChunkLoadError(Chunk chunk, boolean cancelable, Exception e, long blacklistDurationMs) {
         Log.e(TAG, "Chunk load failed (" + chunk.dataSpec.uri.getHost() + ", cancelable=" + cancelable + ", bytes=" + chunk.bytesLoaded() + "): " + e.getMessage());
+        LoadingStatus.step(trackLabel(trackType) + ": Fehler " + shortHost(chunk.dataSpec.uri.getHost()) + " – " + e.getMessage());
 
         // A reload request is not a transport failure. Handing it back as "handled" would
         // retry the very same request at full speed. Let it fall through to the
@@ -661,8 +663,13 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
                 0,
                 sabrHeaders);
         Log.e(TAG, "Load init chunk: track=" + trackType + ", rn=" + manifest.getSabrRequestNumber());
-        return new InitializationChunk(dataSource, dataSpec, trackFormat,
-                trackSelectionReason, trackSelectionData, representationHolder.extractorWrapper);
+        LoadingStatus.setTrack(trackType, formatLabel(trackFormat), dataSpec.uri.getHost());
+        LoadingStatus.step(trackLabel(trackType) + ": Init-Request → " + shortHost(dataSpec.uri.getHost()));
+        // FIX: stop after the track formats. The server streams media right behind the init segment;
+        // reading it here only discards it and delays the first media request by the whole response.
+        return new InitializationChunk(guard(dataSource, trackType, trackFormat), dataSpec, trackFormat,
+                trackSelectionReason, trackSelectionData, representationHolder.extractorWrapper,
+                /* stopAfterTracks= */ true);
     }
 
     protected Chunk newMediaChunk(
@@ -743,10 +750,13 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
         // the buffer just drains. Fail it like a read timeout when it delivers less than a quarter of the bitrate
         // (the declared bitrate is a peak value, half of it is still playable).
         // Not for live: at the live edge the server holds the response until the next segment exists.
-        DataSource guardedDataSource = trackFormat.bitrate > 0 && !manifest.dynamic
-                ? new SlowNetworkGuardDataSource(dataSource, trackFormat.bitrate / 4) : dataSource;
+        LoadingStatus.setTrack(trackType, formatLabel(trackFormat), dataSpec.uri.getHost());
+        if (LoadingStatus.isActive()) {
+            LoadingStatus.step(String.format(java.util.Locale.US, "%s: Media ab %.1f s → %s",
+                    trackLabel(trackType), Math.max(startTimeMs, 0) / 1_000f, shortHost(dataSpec.uri.getHost())));
+        }
         return new ContainerMediaChunk(
-                guardedDataSource,
+                guard(dataSource, trackType, trackFormat),
                 dataSpec,
                 trackFormat,
                 trackSelectionReason,
@@ -846,6 +856,30 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
         Format selectedFormat = trackSelection.getSelectedFormat();
 
         return new CaptionSelector("selected_caption", false, selectedFormat);
+    }
+
+    /** Counts the bytes for the loading overlay and fails networks that trickle (not for live). */
+    private DataSource guard(DataSource dataSource, int trackType, Format trackFormat) {
+        long minBitsPerSecond = trackFormat.bitrate > 0 && !manifest.dynamic ? trackFormat.bitrate / 4 : 0;
+        return new SlowNetworkGuardDataSource(dataSource, minBitsPerSecond, trackType);
+    }
+
+    private static String trackLabel(int trackType) {
+        return trackType == C.TRACK_TYPE_VIDEO ? "Video" : trackType == C.TRACK_TYPE_AUDIO ? "Audio" : "Text";
+    }
+
+    private static String formatLabel(Format format) {
+        if (format.height > 0) {
+            return format.height + "p" + (format.frameRate > 30 ? Math.round(format.frameRate) : "")
+                    + (format.codecs != null ? " " + format.codecs.split("\\.")[0] : "");
+        }
+
+        return (format.codecs != null ? format.codecs : "") + (format.bitrate > 0 ? " " + format.bitrate / 1_000 + "k" : "");
+    }
+
+    public static String shortHost(String host) {
+        return host != null && host.endsWith(".googlevideo.com")
+                ? host.substring(0, host.length() - ".googlevideo.com".length()) : String.valueOf(host);
     }
 
     private static FormatSelector createFormatSelector(int trackType, TrackSelection trackSelection) {

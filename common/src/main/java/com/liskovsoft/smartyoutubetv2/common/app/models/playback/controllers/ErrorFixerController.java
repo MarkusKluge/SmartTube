@@ -38,6 +38,8 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     @Override
     public void onEngineError(int type, int rendererIndex, Throwable error) {
         Log.e(TAG, "Player error occurred: %s. Trying to fix…", type);
+        Throwable reason = error != null && error.getCause() != null ? error.getCause() : error;
+        com.google.android.exoplayer2.util.LoadingStatus.step("Player-Fehler: " + (reason != null ? reason.getMessage() : type));
 
         mBufferingDetector.reset();
         runEngineErrorAction(type, rendererIndex, error);
@@ -48,6 +50,8 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
         if (getPlayer() == null) {
             return;
         }
+
+        com.google.android.exoplayer2.util.LoadingStatus.step("Puffert zu lange → Korrektur");
 
         if (isStreamEnded()) {
             getMainController().onPlayEnd();

@@ -49,6 +49,20 @@ public final class SabrExtractorInput implements ExtractorInput {
         receivedData = false;
     }
 
+    /**
+     * The extractor is reset in the middle of a response (seek, or an init chunk that stopped after the
+     * track formats). Forget the half-read part, otherwise the next response would continue reading it.
+     */
+    public void abandon() {
+        if (data == null && input == null) {
+            return;
+        }
+
+        data = null;
+        sabrStream.discardPendingParts();
+        dispose();
+    }
+
     public void dispose() {
         if (data != null) {
             if (getAdvance() != data.contentLength) {
@@ -191,6 +205,11 @@ public final class SabrExtractorInput implements ExtractorInput {
                 // The stream ended. If the server told us to back off, honor it instead of
                 // re-requesting immediately - otherwise we burn exactly the waiting period the server asked for.
                 int backoffMs = sabrStream.getBackoffTimeMs();
+
+                if (backoffMs > 0 && com.google.android.exoplayer2.util.LoadingStatus.isActive()) {
+                    com.google.android.exoplayer2.util.LoadingStatus.step(String.format(java.util.Locale.US,
+                            "Server verlangt Pause: %.1f s", backoffMs / 1_000f));
+                }
 
                 if (backoffMs > MIN_SWALLOW_BACKOFF_MS) {
                     // Server backoff is too long: reload the format rather than wait.

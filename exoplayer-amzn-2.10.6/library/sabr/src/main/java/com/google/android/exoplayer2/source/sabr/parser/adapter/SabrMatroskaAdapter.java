@@ -62,6 +62,12 @@ public class SabrMatroskaAdapter extends MatroskaExtractor {
         return result;
     }
 
+    @Override
+    public void seek(long position, long timeUs) {
+        extractorInput.abandon();
+        super.seek(position, timeUs);
+    }
+
     private static boolean hasCause(Throwable error, Class<? extends Throwable> type) {
         for (Throwable cause = error; cause != null; cause = cause.getCause()) {
             if (type.isInstance(cause)) {

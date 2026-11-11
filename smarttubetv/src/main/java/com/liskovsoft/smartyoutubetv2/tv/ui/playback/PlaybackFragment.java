@@ -76,6 +76,7 @@ import com.liskovsoft.smartyoutubetv2.tv.ui.browse.video.GridFragmentHelper;
 import com.liskovsoft.smartyoutubetv2.tv.ui.common.LeanbackActivity;
 import com.liskovsoft.smartyoutubetv2.tv.ui.common.UriBackgroundManager;
 import com.liskovsoft.smartyoutubetv2.tv.ui.mod.leanback.misc.ProgressBarManager;
+import com.liskovsoft.smartyoutubetv2.tv.ui.playback.other.LoadingStatusOverlay;
 import com.liskovsoft.smartyoutubetv2.tv.ui.mod.leanback.playerglue.tweaks.PlaybackTransportRowPresenter;
 import com.liskovsoft.smartyoutubetv2.tv.ui.playback.mod.SeekModePlaybackFragment;
 import com.liskovsoft.smartyoutubetv2.tv.ui.playback.mod.surface.SurfacePlaybackFragmentGlueHost;
@@ -114,6 +115,7 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
     private ExoPlayerInitializer mPlayerInitializer;
     private SubtitleManager mSubtitleManager;
     private DebugInfoManager mDebugInfoManager;
+    private LoadingStatusOverlay mLoadingStatusOverlay;
     private UriBackgroundManager mBackgroundManager;
     private RowsSupportFragment mRowsSupportFragment;
     private boolean mIsUIAnimationsEnabled = false;
@@ -171,6 +173,19 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
         // We should use internal progress manager because it's used in many places like Exo engine etc.
         // ProgressBar.setRootView already called at this moment.
         ProgressBarManager.setup(getProgressBarManager(), (ViewGroup) root);
+
+        // LOCAL: what the player is doing while the spinner turns
+        mLoadingStatusOverlay = new LoadingStatusOverlay((ViewGroup) root, new LoadingStatusOverlay.PlayerState() {
+            @Override
+            public boolean isPlaying() {
+                return mExoPlayerController != null && mExoPlayerController.isPlaying();
+            }
+
+            @Override
+            public boolean isBuffering() {
+                return mExoPlayerController != null && mExoPlayerController.isBuffering();
+            }
+        });
 
         return root;
     }
@@ -235,6 +250,10 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
 
         showHideWidgets(true); // PIP mode fix
         blockEngine(false); // reset bg mode
+
+        if (mLoadingStatusOverlay != null) {
+            mLoadingStatusOverlay.start();
+        }
         //ExoPlayerInitializer.enableAudioFocus(mPlayer, true); // Restore focus after PIP
     }
 
@@ -251,6 +270,10 @@ public class PlaybackFragment extends SeekModePlaybackFragment implements Playba
 
         showHideWidgets(false); // PIP mode fix
         //ExoPlayerInitializer.enableAudioFocus(mPlayer, false); // Disable focus in PIP
+
+        if (mLoadingStatusOverlay != null) {
+            mLoadingStatusOverlay.stop();
+        }
     }
 
     public void onDispatchKeyEvent(KeyEvent event) {

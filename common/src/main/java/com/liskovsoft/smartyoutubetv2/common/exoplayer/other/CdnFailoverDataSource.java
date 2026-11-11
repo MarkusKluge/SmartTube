@@ -1,5 +1,7 @@
 package com.liskovsoft.smartyoutubetv2.common.exoplayer.other;
 
+import com.google.android.exoplayer2.C;
+import com.google.android.exoplayer2.util.LoadingStatus;
 import android.net.Uri;
 
 import androidx.annotation.Nullable;
@@ -63,6 +65,7 @@ public final class CdnFailoverDataSource implements DataSource {
 
         try {
             currentUri = spec.uri;
+            LoadingStatus.setTrack(C.TRACK_TYPE_DEFAULT, null, spec.uri.getHost());
             return upstream.open(spec);
         } catch (IOException e) {
             if (!isNetworkFailure(e)) {
@@ -77,6 +80,8 @@ public final class CdnFailoverDataSource implements DataSource {
             }
 
             Log.w(TAG, "Media network failed (%s). Retrying on %s", e.getMessage(), nextSpec.uri.getHost());
+            LoadingStatus.step("Netz " + spec.uri.getHost() + " gestört → " + nextSpec.uri.getHost());
+            LoadingStatus.setTrack(C.TRACK_TYPE_DEFAULT, null, nextSpec.uri.getHost());
             closeQuietly();
             currentUri = nextSpec.uri;
             return upstream.open(nextSpec);
@@ -86,7 +91,11 @@ public final class CdnFailoverDataSource implements DataSource {
     @Override
     public int read(byte[] buffer, int offset, int readLength) throws IOException {
         try {
-            return upstream.read(buffer, offset, readLength);
+            int read = upstream.read(buffer, offset, readLength);
+            if (currentUri != null && isGooglevideo(currentUri)) {
+                LoadingStatus.addBytes(C.TRACK_TYPE_DEFAULT, read);
+            }
+            return read;
         } catch (IOException e) {
             // Stalled in the middle of a response. The loader retries the chunk, which then goes to the next network.
             if (currentUri != null && isGooglevideo(currentUri) && isNetworkFailure(e)) {

@@ -162,6 +162,11 @@ public class SabrStream {
         noNewSegmentsTracker.reset();
     }
 
+    /** The current response is abandoned mid-way (e.g. init chunk stopped early): drop parts parsed from it. */
+    public void discardPendingParts() {
+        multiResult = null;
+    }
+
     public void reset(int iTag) {
         processor.reset(iTag);
     }
@@ -390,6 +395,8 @@ public class SabrStream {
         }
 
         setUrl(sabrRedirect.getRedirectUrl());
+        com.google.android.exoplayer2.util.LoadingStatus.step("Server-Redirect → "
+                + com.google.android.exoplayer2.source.sabr.DefaultSabrChunkSource.shortHost(android.net.Uri.parse(sabrRedirect.getRedirectUrl()).getHost()));
     }
 
     private FormatInitializedSabrPart processFormatInitializationMetadata(UMPPart part) {

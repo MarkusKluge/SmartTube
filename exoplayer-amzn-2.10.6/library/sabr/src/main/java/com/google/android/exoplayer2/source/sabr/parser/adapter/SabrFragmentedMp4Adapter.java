@@ -88,4 +88,10 @@ public class SabrFragmentedMp4Adapter extends FragmentedMp4Extractor {
 
         return result;
     }
+
+    @Override
+    public void seek(long position, long timeUs) {
+        extractorInput.abandon();
+        super.seek(position, timeUs);
+    }
 }

@@ -3,6 +3,8 @@ package com.google.android.exoplayer2.source.sabr;
 import android.net.Uri;
 import android.os.SystemClock;
 
+import com.google.android.exoplayer2.util.LoadingStatus;
+
 import androidx.annotation.Nullable;
 
 import com.google.android.exoplayer2.upstream.DataSource;
@@ -23,6 +25,8 @@ import java.util.Map;
 final class SlowNetworkGuardDataSource implements DataSource {
     /** Not enough data yet for a meaningful rate before this (includes connect and first byte). */
     private static final long GRACE_MS = 6_000;
+    /** Before the first frame every second counts: give up on a trickling network sooner. */
+    private static final long STARTUP_GRACE_MS = 3_000;
 
     /** Thrown when the response arrives too slowly. A read timeout, so the network failover kicks in. */
     static final class SlowNetworkException extends SocketTimeoutException {
@@ -33,12 +37,14 @@ final class SlowNetworkGuardDataSource implements DataSource {
 
     private final DataSource upstream;
     private final long minBitsPerSecond;
+    private final int trackType;
     private long openTimeMs;
     private long bytesRead;
 
-    SlowNetworkGuardDataSource(DataSource upstream, long minBitsPerSecond) {
+    SlowNetworkGuardDataSource(DataSource upstream, long minBitsPerSecond, int trackType) {
         this.upstream = upstream;
         this.minBitsPerSecond = minBitsPerSecond;
+        this.trackType = trackType;
     }
 
     @Override
@@ -59,11 +65,13 @@ final class SlowNetworkGuardDataSource implements DataSource {
 
         if (read > 0) {
             bytesRead += read;
+            LoadingStatus.addBytes(trackType, read);
         }
 
         long elapsedMs = SystemClock.elapsedRealtime() - openTimeMs;
+        long graceMs = LoadingStatus.isActive() ? STARTUP_GRACE_MS : GRACE_MS;
 
-        if (minBitsPerSecond > 0 && elapsedMs >= GRACE_MS) {
+        if (minBitsPerSecond > 0 && elapsedMs >= graceMs) {
             long bitsPerSecond = bytesRead * 8 * 1_000 / elapsedMs;
 
             if (bitsPerSecond < minBitsPerSecond) {

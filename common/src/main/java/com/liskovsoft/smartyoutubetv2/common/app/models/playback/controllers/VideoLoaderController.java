@@ -8,6 +8,7 @@ import com.liskovsoft.mediaserviceinterfaces.data.MediaFormat;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemFormatInfo;
 import com.liskovsoft.mediaserviceinterfaces.data.MediaItemMetadata;
 import com.liskovsoft.sharedutils.helpers.Helpers;
+import com.google.android.exoplayer2.util.LoadingStatus;
 import com.liskovsoft.sharedutils.helpers.MessageHelpers;
 import com.liskovsoft.sharedutils.mylogger.Log;
 import com.liskovsoft.sharedutils.rx.RxHelper;
@@ -36,6 +37,8 @@ public class VideoLoaderController extends BasePlayerController {
     private SuggestionsController mSuggestionsController;
     private ErrorFixerController mErrorFixerController;
     private Disposable mFormatInfoAction;
+    /** Keeps the loading overlay history across reloads of the same video. */
+    private static String sLoadingStatusVideoId;
     private final Runnable mReloadVideo = () -> {
         getMainController().onNewVideo(getVideo());
     };
@@ -255,11 +258,19 @@ public class VideoLoaderController extends BasePlayerController {
         Utils.post(mShowProgressBar);
         disposeActions();
 
+        if (!Helpers.equals(video.videoId, sLoadingStatusVideoId) || !LoadingStatus.isActive()) {
+            sLoadingStatusVideoId = video.videoId;
+            LoadingStatus.begin("Videoinfo anfragen…");
+        } else {
+            LoadingStatus.step("Videoinfo erneut anfragen…");
+        }
+
         ServiceManager service = YouTubeServiceManager.instance();
         MediaItemService mediaItemManager = service.getMediaItemService();
         mFormatInfoAction = mediaItemManager.getFormatInfoObserve(video.videoId)
                 .subscribe(this::processFormatInfo,
                            error -> {
+                               LoadingStatus.step("Videoinfo-Fehler: " + error.getMessage());
                                getPlayer().showProgressBar(false);
                                mErrorFixerController.runFormatErrorAction(error);
                            });
@@ -299,6 +310,7 @@ public class VideoLoaderController extends BasePlayerController {
             loadNextVideo(5_000);
         } else if (acceptAdaptiveFormats(formatInfo) && formatInfo.containsDashFormats() && !preferSabrLive(formatInfo)) {
             Log.d(TAG, "Loading regular video in dash format...");
+            LoadingStatus.step("Videoinfo da → DASH");
 
             if (getPlayerTweaksData().isHighBitrateFormatsEnabled() && formatInfo.hasExtendedHlsFormats()) {
                 player.openMerged(formatInfo, formatInfo.getHlsManifestUrl());
@@ -307,6 +319,7 @@ public class VideoLoaderController extends BasePlayerController {
             }
         } else if (acceptAdaptiveFormats(formatInfo) && formatInfo.containsSabrFormats()) {
             Log.d(TAG, "Loading video in sabr format...");
+            LoadingStatus.step("Videoinfo da → SABR");
             player.openSabr(formatInfo);
         } else if (acceptDashLive(formatInfo)) {
             Log.d(TAG, "Loading live video (current or past live stream) in dash format...");
@@ -337,6 +350,7 @@ public class VideoLoaderController extends BasePlayerController {
 
         if (getPlayer().isEngineInitialized()) {
             Log.d(TAG, "Reloading the video...");
+            LoadingStatus.step(String.format(java.util.Locale.US, "Neu laden in %.1f s", delayMs / 1_000f));
             Utils.postDelayed(mReloadVideo, delayMs);
         }
     }

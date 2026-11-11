@@ -36,6 +36,7 @@ public final class InitializationChunk extends Chunk {
   private static final PositionHolder DUMMY_POSITION_HOLDER = new PositionHolder();
 
   private final ChunkExtractorWrapper extractorWrapper;
+  private final boolean stopAfterTracks;
 
   private long nextLoadPosition;
   private volatile boolean loadCanceled;
@@ -55,9 +56,28 @@ public final class InitializationChunk extends Chunk {
       int trackSelectionReason,
       @Nullable Object trackSelectionData,
       ChunkExtractorWrapper extractorWrapper) {
+    this(dataSource, dataSpec, trackFormat, trackSelectionReason, trackSelectionData,
+        extractorWrapper, /* stopAfterTracks= */ false);
+  }
+
+  /**
+   * @param stopAfterTracks Stop reading as soon as the track formats are known. A SABR server
+   *     streams media segments right behind the initialization segment in the same response;
+   *     reading them here only discards them (no track outputs) and delays the first media chunk
+   *     by the whole response (seconds, much longer on a slow media network).
+   */
+  public InitializationChunk(
+      DataSource dataSource,
+      DataSpec dataSpec,
+      Format trackFormat,
+      int trackSelectionReason,
+      @Nullable Object trackSelectionData,
+      ChunkExtractorWrapper extractorWrapper,
+      boolean stopAfterTracks) {
     super(dataSource, dataSpec, C.DATA_TYPE_MEDIA_INITIALIZATION, trackFormat, trackSelectionReason,
         trackSelectionData, C.TIME_UNSET, C.TIME_UNSET);
     this.extractorWrapper = extractorWrapper;
+    this.stopAfterTracks = stopAfterTracks;
   }
 
   // Loadable implementation.
@@ -86,6 +106,12 @@ public final class InitializationChunk extends Chunk {
         Extractor extractor = extractorWrapper.extractor;
         int result = Extractor.RESULT_CONTINUE;
         while (result == Extractor.RESULT_CONTINUE && !loadCanceled) {
+          if (stopAfterTracks && extractorWrapper.getSampleFormats() != null) {
+            // Drop the rest of the response (see constructor). seek() resets the extractor so the
+            // next chunk starts parsing a fresh response.
+            extractor.seek(/* position= */ 0, /* timeUs= */ 0);
+            break;
+          }
           result = extractor.read(input, DUMMY_POSITION_HOLDER);
         }
         Assertions.checkState(result != Extractor.RESULT_SEEK);

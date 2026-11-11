@@ -109,7 +109,8 @@ public class ExoPlayerInitializer {
         // Default values
         int minBufferMs = 30_000;
         int maxBufferMs = 30_000;
-        int bufferForPlaybackMs = 2_500;
+        // LOCAL: start after 1.5 s instead of 2.5 s of media (rebuffering keeps the 5 s below)
+        int bufferForPlaybackMs = 1_500;
         int bufferForPlaybackAfterRebufferMs = 5_000;
 
         switch (mPlayerData.getVideoBufferType()) {
