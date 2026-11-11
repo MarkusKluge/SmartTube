@@ -279,6 +279,12 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
 
     @Override
     public void getNextChunk(long playbackPositionUs, long loadPositionUs, List<? extends MediaChunk> queue, ChunkHolder out) {
+        long traceNow = android.os.SystemClock.elapsedRealtime();
+        if (traceNow - lastTraceLogMs >= 2_000) { // DEBUG
+            lastTraceLogMs = traceNow;
+            Log.w(TAG, "getNextChunk: track=" + trackType + ", playback=" + C.usToMs(playbackPositionUs)
+                    + "ms, load=" + C.usToMs(loadPositionUs) + "ms, queue=" + queue.size());
+        }
         if (fatalError != null) {
             return;
         }
@@ -296,6 +302,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
                     ? Math.min(remainingMs, MAX_BACKOFF_WAIT_MS)
                     : Math.min(remainingMs, LOW_BUFFER_BACKOFF_WAIT_MS);
             if (waitMs > 0 && sabrStream.getMsSinceLastPolicy() < waitMs) {
+                logNoChunk("backoff wait " + waitMs + "ms", playbackPositionUs, loadPositionUs, queue);
                 return;
             }
         }
@@ -310,6 +317,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
         if (playerTrackEmsgHandler != null
                 && playerTrackEmsgHandler.maybeRefreshManifestBeforeLoadingNextChunk(
                 presentationPositionUs)) {
+            logNoChunk("manifest refresh", playbackPositionUs, loadPositionUs, queue);
             return;
         }
 
@@ -387,6 +395,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
             // DASH does — comparing loadPositionUs directly against periodDurationUs is the
             // SABR equivalent. Without this, getNextChunk() keeps firing "next chunk" requests
             // past the real end of the video forever, and the player never reaches STATE_ENDED.
+            logNoChunk("end of stream (period " + C.usToMs(periodDurationUs) + "ms)", playbackPositionUs, loadPositionUs, queue);
             out.endOfStream = true;
             return;
         }
@@ -725,6 +734,13 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
 
         long startTimeUs = isSabrTimeSet ? startTimeMs * 1_000L : C.TIME_UNSET;
         long endTimeUs = isSabrTimeSet ? startTimeUs + (durationMs * 1_000L) : C.TIME_UNSET;
+        if (initRequest && !isSabrTimeSet && seekTimeUs != C.TIME_UNSET) {
+            // FIX: the first request of a track knows no segment yet. Unset chunk times make the player
+            // derive no next load position from it and stop requesting this track after the response.
+            // Anchor the chunk at the requested position; the buffered position comes from the samples.
+            startTimeUs = seekTimeUs;
+            endTimeUs = seekTimeUs;
+        }
         long clippedEndTimeUs = C.TIME_UNSET;
         int segmentCount = C.INDEX_UNSET; // TODO: replace with SABR value?
         //long startTimeUs = representationHolder.getSegmentStartTimeUs(firstSegmentNum);
@@ -747,7 +763,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
                 0,
                 sabrHeaders);
         long sampleOffsetUs = -representation.presentationTimeOffsetUs;
-        Log.e(TAG, "Load media chunk: track=" + trackType + ", rn=" + manifest.getSabrRequestNumber()
+        Log.e(TAG, "Load media chunk: track=" + trackType + ", init=" + initRequest + ", times=" + C.usToMs(startTimeUs) + ".." + C.usToMs(endTimeUs) + "ms, rn=" + manifest.getSabrRequestNumber()
                 + ", startTimeMs=" + startTimeMs + ", backoffTimeMs=" + sabrStream.getBackoffTimeMs());
         // FIX: a media network that trickles (e.g. 1 Mbit/s for a 9 Mbit/s format) never times out,
         // the buffer just drains. Fail it like a read timeout when it delivers less than a quarter of the bitrate
@@ -864,6 +880,22 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
     private DataSource guard(DataSource dataSource, int trackType, Format trackFormat) {
         long minBitsPerSecond = trackFormat.bitrate > 0 && !manifest.dynamic ? trackFormat.bitrate / 4 : 0;
         return new SlowNetworkGuardDataSource(dataSource, minBitsPerSecond, trackType);
+    }
+
+    private long lastNoChunkLogMs;
+    private long lastTraceLogMs;
+
+    /** DEBUG: why no chunk was returned (at most once per second per track). */
+    private void logNoChunk(String reason, long playbackPositionUs, long loadPositionUs, List<? extends MediaChunk> queue) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - lastNoChunkLogMs < 1_000) {
+            return;
+        }
+        lastNoChunkLogMs = now;
+        MediaChunk last = queue.isEmpty() ? null : queue.get(queue.size() - 1);
+        Log.w(TAG, "No chunk: track=" + trackType + ", " + reason + ", playback=" + C.usToMs(playbackPositionUs)
+                + "ms, load=" + C.usToMs(loadPositionUs) + "ms, queue=" + queue.size()
+                + (last != null ? ", last=" + C.usToMs(last.startTimeUs) + ".." + C.usToMs(last.endTimeUs) + "ms" : ""));
     }
 
     private static String trackLabel(int trackType) {
