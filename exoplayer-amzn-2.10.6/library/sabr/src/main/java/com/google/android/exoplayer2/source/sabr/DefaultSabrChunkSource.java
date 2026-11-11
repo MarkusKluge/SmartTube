@@ -354,6 +354,13 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
             return;
         }
 
+        // FIX: no separate init request. The SABR server answers it with the init segment AND seconds of
+        // media; an InitializationChunk has no sample outputs, so that media was downloaded and thrown away
+        // and the first media request had to wait for the whole response. Instead the first request of a
+        // track is a media chunk: the extractor reads the init segment at its start and the media goes
+        // straight into the buffer.
+        boolean initRequest = false;
+
         if (representationHolder.extractorWrapper != null) {
             Representation selectedRepresentation = representationHolder.representation;
             RangedUri pendingInitializationUri = null;
@@ -366,13 +373,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
             //    pendingIndexUri = selectedRepresentation.getIndexUri();
             //}
             //if (pendingInitializationUri != null || pendingIndexUri != null) {
-            if (pendingInitializationUri != null) {
-                // We have initialization and/or index requests to make.
-                out.chunk = newInitializationChunk(representationHolder, dataSource,
-                        trackSelection.getSelectedFormat(), trackSelection.getSelectionReason(),
-                        trackSelection.getSelectionData(), pendingInitializationUri, pendingIndexUri);
-                return;
-            }
+            initRequest = pendingInitializationUri != null;
         }
 
         long periodDurationUs = representationHolder.periodDurationUs;
@@ -469,7 +470,8 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
                         C.INDEX_UNSET, // TODO: does sabr has segment num?
                         //segmentNum,
                         //maxSegmentCount,
-                        seekTimeUs);
+                        seekTimeUs,
+                        initRequest);
     }
 
     @Override
@@ -681,7 +683,8 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
             Object trackSelectionData,
             long firstSegmentNum,
             //int maxSegmentCount,
-            long seekTimeUs) {
+            long seekTimeUs,
+            boolean initRequest) {
         Representation representation = representationHolder.representation;
         if (representationHolder.extractorWrapper == null) {
             DataSpec dataSpec = new DataSpec(
@@ -735,7 +738,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
                 //segmentUri.resolveUri(baseUrl),
                 DataSpec.HTTP_METHOD_POST,
                 //sabrStream.createVideoPlaybackAbrRequest(trackType, false).toByteArray(),
-                manifest.createVideoPlaybackAbrRequest(trackType, false, seekTimeUs).toByteArray(),
+                manifest.createVideoPlaybackAbrRequest(trackType, initRequest, seekTimeUs).toByteArray(),
                 0, 0, C.LENGTH_UNSET,
                 //segmentUri.start,
                 //segmentUri.start,
@@ -752,7 +755,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
         // Not for live: at the live edge the server holds the response until the next segment exists.
         LoadingStatus.setTrack(trackType, formatLabel(trackFormat));
         if (LoadingStatus.isActive()) {
-            LoadingStatus.phase(trackLabel(trackType) + " data");
+            LoadingStatus.phase(trackLabel(trackType) + (initRequest ? " init + data" : " data"));
         }
         return new ContainerMediaChunk(
                 guard(dataSource, trackType, trackFormat),
