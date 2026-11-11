@@ -308,6 +308,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
         }
 
         long bufferedDurationUs = loadPositionUs - playbackPositionUs;
+        lastBufferedDurationUs = queue.isEmpty() ? 0 : bufferedDurationUs;
         long timeToLiveEdgeUs = resolveTimeToLiveEdgeUs(playbackPositionUs);
         long presentationPositionUs =
                 C.msToUs(manifest.availabilityStartTimeMs)
@@ -466,6 +467,16 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
                     Log.w(TAG, "Retrying the seek to " + C.usToMs(pendingSeekTimeUs) + "ms");
                     seekTimeUs = pendingSeekTimeUs;
                 }
+            }
+
+            // FIX: no segment of this format received yet (e.g. the first response after a resume carried only
+            // a redirect/init). Without a segment time the request would start at 0 and the server would send
+            // media from the beginning while the player waits at the resume position (test 2026-11-11: 20 s stall).
+            FormatId selectedFormatId = formatSelector.getSelectedFormatId();
+            if (seekTimeUs == C.TIME_UNSET && loadPositionUs > 0
+                    && !sabrStream.hasSegmentStartTime(selectedFormatId != null ? selectedFormatId.getItag() : -1)) {
+                Log.w(TAG, "No segment time yet, requesting from the load position " + C.usToMs(loadPositionUs) + "ms");
+                seekTimeUs = loadPositionUs;
             }
         }
         out.chunk =
@@ -878,11 +889,16 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
 
     /** Counts the bytes for the loading overlay and fails networks that trickle (not for live). */
     private DataSource guard(DataSource dataSource, int trackType, Format trackFormat) {
-        long minBitsPerSecond = trackFormat.bitrate > 0 && !manifest.dynamic ? trackFormat.bitrate / 4 : 0;
+        // Only while the player starves (start, seek, nearly empty buffer). With a healthy buffer the server
+        // paces the response on purpose; failing it then caused a player error and a rebuffer (test 2026-11-11).
+        boolean starving = LoadingStatus.isActive() || lastBufferedDurationUs < GUARD_MAX_BUFFER_US;
+        long minBitsPerSecond = starving && trackFormat.bitrate > 0 && !manifest.dynamic ? trackFormat.bitrate / 4 : 0;
         return new SlowNetworkGuardDataSource(dataSource, minBitsPerSecond, trackType);
     }
 
     private long lastNoChunkLogMs;
+    private static final long GUARD_MAX_BUFFER_US = 5_000_000;
+    private long lastBufferedDurationUs;
     private long lastTraceLogMs;
 
     /** DEBUG: why no chunk was returned (at most once per second per track). */

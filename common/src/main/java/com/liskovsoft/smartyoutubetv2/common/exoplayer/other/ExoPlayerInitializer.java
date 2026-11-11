@@ -72,6 +72,7 @@ public class ExoPlayerInitializer {
         //player.setPlayWhenReady(true);
 
         applyPlaybackFixes(player);
+        player.addAnalyticsListener(new PlayerMetricsLogger()); // LOCAL: diagnostics, log only
 
         setupAudioFocus(player);
 

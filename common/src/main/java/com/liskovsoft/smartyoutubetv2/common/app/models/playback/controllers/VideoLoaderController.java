@@ -277,6 +277,7 @@ public class VideoLoaderController extends BasePlayerController {
     }
 
     private void processFormatInfo(MediaItemFormatInfo formatInfo) {
+        LoadingStatus.phase("video info received");
         PlaybackView player = getPlayer();
 
         if (player == null || getVideo() == null) {
