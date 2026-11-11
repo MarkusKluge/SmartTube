@@ -116,6 +116,14 @@ android {
                 signingConfig signingConfigs.release
             }
         }
+        // LOCAL: debuggable test build next to the "Claude" app (thread dumps, run-as), package org.smarttube.fix.dbg
+        claudeDebug {
+            initWith release
+            debuggable true
+            applicationIdSuffix ".dbg"
+            versionNameSuffix "-dbg"
+            matchingFallbacks = ['release']
+        }
         // Use same key for release and debug for testing
         debug {
             if (keystorePropertiesFile.exists()) {

@@ -2,10 +2,13 @@
 # Build (and optionally install) the local "Claude" variant org.smarttube.fix.
 #   ./claude-build.sh            build the arm64 release APK
 #   ./claude-build.sh install    build + adb install on the Shield
+#   ./claude-build.sh dbg [install]   debuggable test build org.smarttube.fix.dbg ("Claude DBG", next to the app)
 # Signing key lives outside the repo: ~/.config/smarttube-fix/{fix.jks,keystore.properties}
 # (back it up — a new key means uninstalling the app and losing its settings).
 set -euo pipefail
 cd "$(dirname "$0")"
+BUILD_TYPE=Release; APK_DIR=release
+if [ "${1:-}" = dbg ]; then BUILD_TYPE=ClaudeDebug; APK_DIR=claudeDebug; shift; fi
 
 KEYS="${SMARTTUBE_KEYS:-$HOME/.config/smarttube-fix}"
 GRADLE_CACHE="${SMARTTUBE_GRADLE_CACHE:-$HOME/.cache/smarttube-gradle}"
@@ -57,7 +60,7 @@ docker run -d --name st-build --memory="${SMARTTUBE_BUILD_MEM:-4g}" \
     -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" "$IMAGE" \
     bash -c 'bash ./gradlew --no-daemon --max-workers=2 -Pkotlin.compiler.execution.strategy=in-process \
         -PclaudeUpstreamCommit='"$UPSTREAM_COMMIT"' -PclaudeUpstreamTime='"$UPSTREAM_TIME"' \
-        :smarttubetv:assembleStbetaRelease -x lint > /src/build.log 2>&1; rc=$?; \
+        :smarttubetv:assembleStbeta'"$BUILD_TYPE"' -x lint > /src/build.log 2>&1; rc=$?; \
         chown -R "$HOST_UID:$HOST_GID" /src /root/.gradle; echo "EXIT=$rc" >> /src/build.log; exit $rc' >/dev/null
 echo "build running in container st-build, log: $PWD/build.log"
 rc=$(docker wait st-build)
@@ -65,7 +68,7 @@ docker rm st-build >/dev/null
 grep -E "^BUILD|EXIT=" build.log | tail -2
 [ "$rc" = 0 ] || exit "$rc"
 
-APK=$(ls -t smarttubetv/build/outputs/apk/stbeta/release/*arm64-v8a.apk | head -1)
+APK=$(ls -t smarttubetv/build/outputs/apk/stbeta/$APK_DIR/*arm64-v8a.apk | head -1)
 echo "$APK"
 if [ "${1:-}" = install ]; then
     [ -n "$SHIELD" ] || { echo "set SHIELD or $KEYS/shield" >&2; exit 1; }
