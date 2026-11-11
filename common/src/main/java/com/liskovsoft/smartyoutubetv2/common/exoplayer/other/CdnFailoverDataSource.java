@@ -65,7 +65,6 @@ public final class CdnFailoverDataSource implements DataSource {
 
         try {
             currentUri = spec.uri;
-            LoadingStatus.setTrack(C.TRACK_TYPE_DEFAULT, null, spec.uri.getHost());
             return upstream.open(spec);
         } catch (IOException e) {
             if (!isNetworkFailure(e)) {
@@ -80,8 +79,7 @@ public final class CdnFailoverDataSource implements DataSource {
             }
 
             Log.w(TAG, "Media network failed (%s). Retrying on %s", e.getMessage(), nextSpec.uri.getHost());
-            LoadingStatus.step("Netz " + spec.uri.getHost() + " gestört → " + nextSpec.uri.getHost());
-            LoadingStatus.setTrack(C.TRACK_TYPE_DEFAULT, null, nextSpec.uri.getHost());
+            LoadingStatus.issue("Switched network " + spec.uri.getHost() + " → " + nextSpec.uri.getHost());
             closeQuietly();
             currentUri = nextSpec.uri;
             return upstream.open(nextSpec);

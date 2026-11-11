@@ -260,9 +260,9 @@ public class VideoLoaderController extends BasePlayerController {
 
         if (!Helpers.equals(video.videoId, sLoadingStatusVideoId) || !LoadingStatus.isActive()) {
             sLoadingStatusVideoId = video.videoId;
-            LoadingStatus.begin("Videoinfo anfragen…");
+            LoadingStatus.begin("video info");
         } else {
-            LoadingStatus.step("Videoinfo erneut anfragen…");
+            LoadingStatus.phase("video info (retry)");
         }
 
         ServiceManager service = YouTubeServiceManager.instance();
@@ -270,7 +270,7 @@ public class VideoLoaderController extends BasePlayerController {
         mFormatInfoAction = mediaItemManager.getFormatInfoObserve(video.videoId)
                 .subscribe(this::processFormatInfo,
                            error -> {
-                               LoadingStatus.step("Videoinfo-Fehler: " + error.getMessage());
+                               LoadingStatus.issue("Video info failed: " + error.getMessage());
                                getPlayer().showProgressBar(false);
                                mErrorFixerController.runFormatErrorAction(error);
                            });
@@ -310,7 +310,7 @@ public class VideoLoaderController extends BasePlayerController {
             loadNextVideo(5_000);
         } else if (acceptAdaptiveFormats(formatInfo) && formatInfo.containsDashFormats() && !preferSabrLive(formatInfo)) {
             Log.d(TAG, "Loading regular video in dash format...");
-            LoadingStatus.step("Videoinfo da → DASH");
+            LoadingStatus.phase("starting DASH");
 
             if (getPlayerTweaksData().isHighBitrateFormatsEnabled() && formatInfo.hasExtendedHlsFormats()) {
                 player.openMerged(formatInfo, formatInfo.getHlsManifestUrl());
@@ -319,7 +319,7 @@ public class VideoLoaderController extends BasePlayerController {
             }
         } else if (acceptAdaptiveFormats(formatInfo) && formatInfo.containsSabrFormats()) {
             Log.d(TAG, "Loading video in sabr format...");
-            LoadingStatus.step("Videoinfo da → SABR");
+            LoadingStatus.phase("starting SABR");
             player.openSabr(formatInfo);
         } else if (acceptDashLive(formatInfo)) {
             Log.d(TAG, "Loading live video (current or past live stream) in dash format...");
@@ -350,7 +350,7 @@ public class VideoLoaderController extends BasePlayerController {
 
         if (getPlayer().isEngineInitialized()) {
             Log.d(TAG, "Reloading the video...");
-            LoadingStatus.step(String.format(java.util.Locale.US, "Neu laden in %.1f s", delayMs / 1_000f));
+            LoadingStatus.issue("Reloading video");
             Utils.postDelayed(mReloadVideo, delayMs);
         }
     }

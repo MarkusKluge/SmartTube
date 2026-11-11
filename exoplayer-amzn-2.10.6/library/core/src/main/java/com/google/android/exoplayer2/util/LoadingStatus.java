@@ -2,31 +2,33 @@ package com.google.android.exoplayer2.util;
 
 import android.os.SystemClock;
 
+import androidx.annotation.Nullable;
+
 import com.google.android.exoplayer2.C;
 
 import java.util.ArrayDeque;
 import java.util.Locale;
 
 /**
- * What the player is doing while the user stares at a spinner: video info, requests, redirects,
- * network switches, backoffs and the live transfer rate per track. Written by the app, the SABR
- * chunk source and the data sources, read by the loading overlay.
+ * What the player is doing while the user stares at a spinner. Written by the app, the SABR chunk
+ * source and the data sources, read by the loading overlay. Kept short on purpose:
+ * current phase, one line per track (quality, bytes, rate) and the last few problems.
  */
 public final class LoadingStatus {
     private static final String TAG = "LoadingStatus";
-    private static final int MAX_STEPS = 6;
+    private static final int MAX_ISSUES = 3;
     private static final long RATE_WINDOW_MS = 1_000;
     private static final long STALE_RATE_MS = 2_000;
-    private static final int TRACKS = 3; // C.TRACK_TYPE_DEFAULT (DASH/unknown), AUDIO, VIDEO
+    private static final int TRACKS = 3; // C.TRACK_TYPE_DEFAULT (DASH/other), AUDIO, VIDEO
 
-    private static final ArrayDeque<String> sSteps = new ArrayDeque<>();
+    private static final ArrayDeque<String> sIssues = new ArrayDeque<>();
     private static final long[] sBytes = new long[TRACKS];
     private static final long[] sWindowBytes = new long[TRACKS];
     private static final long[] sWindowStartMs = new long[TRACKS];
     private static final long[] sLastDataMs = new long[TRACKS];
     private static final long[] sRateBps = new long[TRACKS];
     private static final String[] sFormats = new String[TRACKS];
-    private static final String[] sHosts = new String[TRACKS];
+    private static String sPhase;
     private static long sStartMs;
     private static boolean sActive;
 
@@ -34,8 +36,8 @@ public final class LoadingStatus {
     }
 
     /** A new video starts loading. */
-    public static synchronized void begin(String step) {
-        sSteps.clear();
+    public static synchronized void begin(String phase) {
+        sIssues.clear();
 
         for (int i = 0; i < TRACKS; i++) {
             sBytes[i] = 0;
@@ -44,12 +46,11 @@ public final class LoadingStatus {
             sLastDataMs[i] = 0;
             sRateBps[i] = 0;
             sFormats[i] = null;
-            sHosts[i] = null;
         }
 
         sStartMs = now();
         sActive = true;
-        step(step);
+        phase(phase);
     }
 
     /** The first frames are playing. */
@@ -66,35 +67,27 @@ public final class LoadingStatus {
         return sActive;
     }
 
-    public static synchronized long elapsedMs() {
-        return sStartMs == 0 ? 0 : now() - sStartMs;
+    /** What happens right now (replaces the previous phase). */
+    public static synchronized void phase(String text) {
+        sPhase = text;
+        Log.d(TAG, time() + " " + text);
     }
 
-    public static synchronized void step(String text) {
-        if (sStartMs == 0) {
-            sStartMs = now();
+    /** Something went wrong or slowed us down (kept in a short list). */
+    public static synchronized void issue(String text) {
+        sIssues.addLast(time() + "  " + text);
+
+        while (sIssues.size() > MAX_ISSUES) {
+            sIssues.removeFirst();
         }
 
-        sSteps.addLast(String.format(Locale.US, "%5.1fs  %s", elapsedMs() / 1_000f, text));
-
-        while (sSteps.size() > MAX_STEPS) {
-            sSteps.removeFirst();
-        }
-
-        Log.d(TAG, text);
+        Log.w(TAG, time() + " " + text);
     }
 
-    /** What a track is loading right now (format label, media host). */
-    public static synchronized void setTrack(int trackType, @androidx.annotation.Nullable String format,
-                                             @androidx.annotation.Nullable String host) {
-        int i = index(trackType);
-
+    /** The format a track is loading right now. */
+    public static synchronized void setTrack(int trackType, @Nullable String format) {
         if (format != null) {
-            sFormats[i] = format;
-        }
-
-        if (host != null) {
-            sHosts[i] = host;
+            sFormats[index(trackType)] = format;
         }
     }
 
@@ -123,22 +116,22 @@ public final class LoadingStatus {
         }
     }
 
-    /** Multi-line text for the overlay. */
+    /** Text for the overlay. */
     public static synchronized String render() {
         StringBuilder sb = new StringBuilder();
 
-        if (sActive) {
-            sb.append(String.format(Locale.US, "Lade Video · %.1f s", elapsedMs() / 1_000f));
-        } else {
-            sb.append("Puffere nach");
+        sb.append(sActive ? String.format(Locale.US, "Loading %.1f s", elapsedMs() / 1_000f) : "Rebuffering");
+
+        if (sPhase != null) {
+            sb.append(" · ").append(sPhase);
         }
 
         appendTrack(sb, "Video", C.TRACK_TYPE_VIDEO);
         appendTrack(sb, "Audio", C.TRACK_TYPE_AUDIO);
-        appendTrack(sb, "Daten", C.TRACK_TYPE_DEFAULT);
+        appendTrack(sb, "Media", C.TRACK_TYPE_DEFAULT);
 
-        for (String step : sSteps) {
-            sb.append('\n').append(step);
+        for (String issue : sIssues) {
+            sb.append("\n! ").append(issue);
         }
 
         return sb.toString();
@@ -151,8 +144,9 @@ public final class LoadingStatus {
             return;
         }
 
-        long now = now();
-        boolean stale = sLastDataMs[i] == 0 || now - sLastDataMs[i] > STALE_RATE_MS;
+        boolean stale = sLastDataMs[i] == 0 || now() - sLastDataMs[i] > STALE_RATE_MS;
+        String rate = stale ? (sBytes[i] == 0 ? "waiting" : "stalled")
+                : String.format(Locale.US, "%.1f Mbit/s", sRateBps[i] / 1_000_000f);
 
         sb.append('\n').append(label);
 
@@ -160,17 +154,15 @@ public final class LoadingStatus {
             sb.append(' ').append(sFormats[i]);
         }
 
-        if (sHosts[i] != null) {
-            sb.append(" · ").append(shortHost(sHosts[i]));
-        }
-
-        sb.append(String.format(Locale.US, " · %.1f MB · %s",
-                sBytes[i] / 1_048_576f,
-                stale ? (sBytes[i] == 0 ? "wartet" : "keine Daten") : String.format(Locale.US, "%.1f Mbit/s", sRateBps[i] / 1_000_000f)));
+        sb.append(String.format(Locale.US, " · %.1f MB · %s", sBytes[i] / 1_048_576f, rate));
     }
 
-    private static String shortHost(String host) {
-        return host.endsWith(".googlevideo.com") ? host.substring(0, host.length() - ".googlevideo.com".length()) : host;
+    private static String time() {
+        return String.format(Locale.US, "%.1fs", elapsedMs() / 1_000f);
+    }
+
+    private static long elapsedMs() {
+        return sStartMs == 0 ? 0 : now() - sStartMs;
     }
 
     private static int index(int trackType) {

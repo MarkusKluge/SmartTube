@@ -395,7 +395,7 @@ public class SabrStream {
         }
 
         setUrl(sabrRedirect.getRedirectUrl());
-        com.google.android.exoplayer2.util.LoadingStatus.step("Server-Redirect → "
+        com.google.android.exoplayer2.util.LoadingStatus.phase("Redirect → "
                 + com.google.android.exoplayer2.source.sabr.DefaultSabrChunkSource.shortHost(android.net.Uri.parse(sabrRedirect.getRedirectUrl()).getHost()));
     }
 

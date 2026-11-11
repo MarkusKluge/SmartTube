@@ -250,7 +250,7 @@ public class SabrManifest implements FilterableManifest<SabrManifest> {
         }
 
         Log.w(TAG, "Media network %s failed, switching to %s", host(failedUrl), host(nextUrl));
-        com.google.android.exoplayer2.util.LoadingStatus.step("Netz " + host(failedUrl) + " gestört → " + host(nextUrl));
+        com.google.android.exoplayer2.util.LoadingStatus.issue("Switched network " + host(failedUrl) + " → " + host(nextUrl));
 
         for (SabrStream sabrStream : sabrStreams.values()) {
             sabrStream.setServerAbrStreamingUrl(nextUrl);

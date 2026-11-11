@@ -500,7 +500,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
     @Override
     public boolean onChunkLoadError(Chunk chunk, boolean cancelable, Exception e, long blacklistDurationMs) {
         Log.e(TAG, "Chunk load failed (" + chunk.dataSpec.uri.getHost() + ", cancelable=" + cancelable + ", bytes=" + chunk.bytesLoaded() + "): " + e.getMessage());
-        LoadingStatus.step(trackLabel(trackType) + ": Fehler " + shortHost(chunk.dataSpec.uri.getHost()) + " – " + e.getMessage());
+        LoadingStatus.issue(trackLabel(trackType) + " failed on " + shortHost(chunk.dataSpec.uri.getHost()) + ": " + e.getMessage());
 
         // A reload request is not a transport failure. Handing it back as "handled" would
         // retry the very same request at full speed. Let it fall through to the
@@ -663,13 +663,13 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
                 0,
                 sabrHeaders);
         Log.e(TAG, "Load init chunk: track=" + trackType + ", rn=" + manifest.getSabrRequestNumber());
-        LoadingStatus.setTrack(trackType, formatLabel(trackFormat), dataSpec.uri.getHost());
-        LoadingStatus.step(trackLabel(trackType) + ": Init-Request → " + shortHost(dataSpec.uri.getHost()));
-        // FIX: stop after the track formats. The server streams media right behind the init segment;
-        // reading it here only discards it and delays the first media request by the whole response.
+        LoadingStatus.setTrack(trackType, formatLabel(trackFormat));
+        LoadingStatus.phase(trackLabel(trackType) + " init");
+        // TODO: stopAfterTracks=true starts ~5 s earlier, but the SABR processor keeps the half-read
+        //  segment of the abandoned response and stops requesting media after the first chunk (stall).
         return new InitializationChunk(guard(dataSource, trackType, trackFormat), dataSpec, trackFormat,
                 trackSelectionReason, trackSelectionData, representationHolder.extractorWrapper,
-                /* stopAfterTracks= */ true);
+                /* stopAfterTracks= */ false);
     }
 
     protected Chunk newMediaChunk(
@@ -750,10 +750,9 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
         // the buffer just drains. Fail it like a read timeout when it delivers less than a quarter of the bitrate
         // (the declared bitrate is a peak value, half of it is still playable).
         // Not for live: at the live edge the server holds the response until the next segment exists.
-        LoadingStatus.setTrack(trackType, formatLabel(trackFormat), dataSpec.uri.getHost());
+        LoadingStatus.setTrack(trackType, formatLabel(trackFormat));
         if (LoadingStatus.isActive()) {
-            LoadingStatus.step(String.format(java.util.Locale.US, "%s: Media ab %.1f s → %s",
-                    trackLabel(trackType), Math.max(startTimeMs, 0) / 1_000f, shortHost(dataSpec.uri.getHost())));
+            LoadingStatus.phase(trackLabel(trackType) + " data");
         }
         return new ContainerMediaChunk(
                 guard(dataSource, trackType, trackFormat),

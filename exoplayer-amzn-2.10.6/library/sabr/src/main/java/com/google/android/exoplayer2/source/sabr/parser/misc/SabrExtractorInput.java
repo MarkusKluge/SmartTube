@@ -207,8 +207,8 @@ public final class SabrExtractorInput implements ExtractorInput {
                 int backoffMs = sabrStream.getBackoffTimeMs();
 
                 if (backoffMs > 0 && com.google.android.exoplayer2.util.LoadingStatus.isActive()) {
-                    com.google.android.exoplayer2.util.LoadingStatus.step(String.format(java.util.Locale.US,
-                            "Server verlangt Pause: %.1f s", backoffMs / 1_000f));
+                    com.google.android.exoplayer2.util.LoadingStatus.issue(String.format(java.util.Locale.US,
+                            "Server backoff %.1f s", backoffMs / 1_000f));
                 }
 
                 if (backoffMs > MIN_SWALLOW_BACKOFF_MS) {
