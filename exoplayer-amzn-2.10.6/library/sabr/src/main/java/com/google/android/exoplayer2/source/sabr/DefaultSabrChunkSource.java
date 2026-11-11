@@ -296,11 +296,13 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
                     ? Math.min(remainingMs, MAX_BACKOFF_WAIT_MS)
                     : Math.min(remainingMs, LOW_BUFFER_BACKOFF_WAIT_MS);
             if (waitMs > 0 && sabrStream.getMsSinceLastPolicy() < waitMs) {
+                logNoChunk("backoff wait " + waitMs + "ms", playbackPositionUs, loadPositionUs, queue);
                 return;
             }
         }
 
         long bufferedDurationUs = loadPositionUs - playbackPositionUs;
+        lastBufferedDurationUs = queue.isEmpty() ? 0 : bufferedDurationUs;
         long timeToLiveEdgeUs = resolveTimeToLiveEdgeUs(playbackPositionUs);
         long presentationPositionUs =
                 C.msToUs(manifest.availabilityStartTimeMs)
@@ -310,6 +312,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
         if (playerTrackEmsgHandler != null
                 && playerTrackEmsgHandler.maybeRefreshManifestBeforeLoadingNextChunk(
                 presentationPositionUs)) {
+            logNoChunk("manifest refresh", playbackPositionUs, loadPositionUs, queue);
             return;
         }
 
@@ -354,6 +357,13 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
             return;
         }
 
+        // FIX: no separate init request. The SABR server answers it with the init segment AND seconds of
+        // media; an InitializationChunk has no sample outputs, so that media was downloaded and thrown away
+        // and the first media request had to wait for the whole response. Instead the first request of a
+        // track is a media chunk: the extractor reads the init segment at its start and the media goes
+        // straight into the buffer.
+        boolean initRequest = false;
+
         if (representationHolder.extractorWrapper != null) {
             Representation selectedRepresentation = representationHolder.representation;
             RangedUri pendingInitializationUri = null;
@@ -366,13 +376,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
             //    pendingIndexUri = selectedRepresentation.getIndexUri();
             //}
             //if (pendingInitializationUri != null || pendingIndexUri != null) {
-            if (pendingInitializationUri != null) {
-                // We have initialization and/or index requests to make.
-                out.chunk = newInitializationChunk(representationHolder, dataSource,
-                        trackSelection.getSelectedFormat(), trackSelection.getSelectionReason(),
-                        trackSelection.getSelectionData(), pendingInitializationUri, pendingIndexUri);
-                return;
-            }
+            initRequest = pendingInitializationUri != null;
         }
 
         long periodDurationUs = representationHolder.periodDurationUs;
@@ -386,6 +390,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
             // DASH does — comparing loadPositionUs directly against periodDurationUs is the
             // SABR equivalent. Without this, getNextChunk() keeps firing "next chunk" requests
             // past the real end of the video forever, and the player never reaches STATE_ENDED.
+            logNoChunk("end of stream (period " + C.usToMs(periodDurationUs) + "ms)", playbackPositionUs, loadPositionUs, queue);
             out.endOfStream = true;
             return;
         }
@@ -457,6 +462,16 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
                     seekTimeUs = pendingSeekTimeUs;
                 }
             }
+
+            // FIX: no segment of this format received yet (e.g. the first response after a resume carried only
+            // a redirect/init). Without a segment time the request would start at 0 and the server would send
+            // media from the beginning while the player waits at the resume position (test 2026-11-11: 20 s stall).
+            FormatId selectedFormatId = formatSelector.getSelectedFormatId();
+            if (seekTimeUs == C.TIME_UNSET && loadPositionUs > 0
+                    && !sabrStream.hasSegmentStartTime(selectedFormatId != null ? selectedFormatId.getItag() : -1)) {
+                Log.w(TAG, "No segment time yet, requesting from the load position " + C.usToMs(loadPositionUs) + "ms");
+                seekTimeUs = loadPositionUs;
+            }
         }
         out.chunk =
                 newMediaChunk(
@@ -469,7 +484,8 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
                         C.INDEX_UNSET, // TODO: does sabr has segment num?
                         //segmentNum,
                         //maxSegmentCount,
-                        seekTimeUs);
+                        seekTimeUs,
+                        initRequest);
     }
 
     @Override
@@ -681,7 +697,8 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
             Object trackSelectionData,
             long firstSegmentNum,
             //int maxSegmentCount,
-            long seekTimeUs) {
+            long seekTimeUs,
+            boolean initRequest) {
         Representation representation = representationHolder.representation;
         if (representationHolder.extractorWrapper == null) {
             DataSpec dataSpec = new DataSpec(
@@ -722,6 +739,14 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
 
         long startTimeUs = isSabrTimeSet ? startTimeMs * 1_000L : C.TIME_UNSET;
         long endTimeUs = isSabrTimeSet ? startTimeUs + (durationMs * 1_000L) : C.TIME_UNSET;
+        if (!isSabrTimeSet && seekTimeUs != C.TIME_UNSET) {
+            // FIX: no segment known yet (first request of a track, or a seek/resume retry after an empty response).
+            // Unset chunk times make the player derive no next load position and stop requesting this track
+            // (tests 2026-11-11: 20-30 s stalls). Anchor the chunk at the requested position; the buffered
+            // position comes from the samples.
+            startTimeUs = seekTimeUs;
+            endTimeUs = seekTimeUs;
+        }
         long clippedEndTimeUs = C.TIME_UNSET;
         int segmentCount = C.INDEX_UNSET; // TODO: replace with SABR value?
         //long startTimeUs = representationHolder.getSegmentStartTimeUs(firstSegmentNum);
@@ -735,7 +760,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
                 //segmentUri.resolveUri(baseUrl),
                 DataSpec.HTTP_METHOD_POST,
                 //sabrStream.createVideoPlaybackAbrRequest(trackType, false).toByteArray(),
-                manifest.createVideoPlaybackAbrRequest(trackType, false, seekTimeUs).toByteArray(),
+                manifest.createVideoPlaybackAbrRequest(trackType, initRequest, seekTimeUs).toByteArray(),
                 0, 0, C.LENGTH_UNSET,
                 //segmentUri.start,
                 //segmentUri.start,
@@ -744,7 +769,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
                 0,
                 sabrHeaders);
         long sampleOffsetUs = -representation.presentationTimeOffsetUs;
-        Log.e(TAG, "Load media chunk: track=" + trackType + ", rn=" + manifest.getSabrRequestNumber()
+        Log.e(TAG, "Load media chunk: track=" + trackType + ", init=" + initRequest + ", times=" + C.usToMs(startTimeUs) + ".." + C.usToMs(endTimeUs) + "ms, rn=" + manifest.getSabrRequestNumber()
                 + ", startTimeMs=" + startTimeMs + ", backoffTimeMs=" + sabrStream.getBackoffTimeMs());
         // FIX: a media network that trickles (e.g. 1 Mbit/s for a 9 Mbit/s format) never times out,
         // the buffer just drains. Fail it like a read timeout when it delivers less than a quarter of the bitrate
@@ -752,7 +777,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
         // Not for live: at the live edge the server holds the response until the next segment exists.
         LoadingStatus.setTrack(trackType, formatLabel(trackFormat));
         if (LoadingStatus.isActive()) {
-            LoadingStatus.phase(trackLabel(trackType) + " data");
+            LoadingStatus.phase(trackLabel(trackType) + (initRequest ? " init + data" : " data"));
         }
         return new ContainerMediaChunk(
                 guard(dataSource, trackType, trackFormat),
@@ -859,8 +884,28 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
 
     /** Counts the bytes for the loading overlay and fails networks that trickle (not for live). */
     private DataSource guard(DataSource dataSource, int trackType, Format trackFormat) {
-        long minBitsPerSecond = trackFormat.bitrate > 0 && !manifest.dynamic ? trackFormat.bitrate / 4 : 0;
+        // Only while the player starves (start, seek, nearly empty buffer). With a healthy buffer the server
+        // paces the response on purpose; failing it then caused a player error and a rebuffer (test 2026-11-11).
+        boolean starving = LoadingStatus.isActive() || lastBufferedDurationUs < GUARD_MAX_BUFFER_US;
+        long minBitsPerSecond = starving && trackFormat.bitrate > 0 && !manifest.dynamic ? trackFormat.bitrate / 4 : 0;
         return new SlowNetworkGuardDataSource(dataSource, minBitsPerSecond, trackType);
+    }
+
+    private long lastNoChunkLogMs;
+    private static final long GUARD_MAX_BUFFER_US = 5_000_000;
+    private long lastBufferedDurationUs;
+
+    /** DEBUG: why no chunk was returned (at most once per second per track). */
+    private void logNoChunk(String reason, long playbackPositionUs, long loadPositionUs, List<? extends MediaChunk> queue) {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - lastNoChunkLogMs < 1_000) {
+            return;
+        }
+        lastNoChunkLogMs = now;
+        MediaChunk last = queue.isEmpty() ? null : queue.get(queue.size() - 1);
+        Log.w(TAG, "No chunk: track=" + trackType + ", " + reason + ", playback=" + C.usToMs(playbackPositionUs)
+                + "ms, load=" + C.usToMs(loadPositionUs) + "ms, queue=" + queue.size()
+                + (last != null ? ", last=" + C.usToMs(last.startTimeUs) + ".." + C.usToMs(last.endTimeUs) + "ms" : ""));
     }
 
     private static String trackLabel(int trackType) {
