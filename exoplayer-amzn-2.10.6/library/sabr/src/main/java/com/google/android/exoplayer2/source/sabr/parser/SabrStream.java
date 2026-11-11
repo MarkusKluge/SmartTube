@@ -165,6 +165,7 @@ public class SabrStream {
     /** The current response is abandoned mid-way (e.g. init chunk stopped early): drop parts parsed from it. */
     public void discardPendingParts() {
         multiResult = null;
+        processor.discardPartialSegments();
     }
 
     public void reset(int iTag) {

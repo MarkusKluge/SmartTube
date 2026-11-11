@@ -307,6 +307,44 @@ public class SabrProcessor {
         return result;
     }
 
+    /**
+     * The response was abandoned mid-way (init chunk stopped after the track formats). A segment is counted
+     * as consumed when its header arrives, so the half-read one would be reported to the server as buffered.
+     * Roll those back and forget the partial segments.
+     */
+    public void discardPartialSegments() {
+        for (Segment segment : partialSegments.values()) {
+            if (segment.isInitSegment || segment.initializedFormat == null) {
+                continue;
+            }
+
+            List<ConsumedRange> ranges = segment.initializedFormat.consumedRanges;
+
+            for (int i = ranges.size() - 1; i >= 0; i--) {
+                ConsumedRange range = ranges.get(i);
+
+                if (range.endSequenceNumber != segment.sequenceNumber) {
+                    continue;
+                }
+
+                if (range.startSequenceNumber >= segment.sequenceNumber) {
+                    ranges.remove(i);
+                } else {
+                    range.endSequenceNumber = segment.sequenceNumber - 1;
+                    range.durationMs = segment.startMs - range.startTimeMs;
+                }
+            }
+
+            if (segment.initializedFormat.currentSegment == segment) {
+                segment.initializedFormat.currentSegment = null;
+            }
+
+            Log.d(TAG, "Discarded partial segment %s of %s", segment.sequenceNumber, segment.formatId);
+        }
+
+        partialSegments.clear();
+    }
+
     public ProcessMediaEndResult processMediaEnd(long headerId) {
         Segment segment = partialSegments.remove(headerId);
         if (segment == null) {

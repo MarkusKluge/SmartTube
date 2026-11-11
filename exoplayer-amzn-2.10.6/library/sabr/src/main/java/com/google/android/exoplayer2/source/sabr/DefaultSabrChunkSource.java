@@ -669,7 +669,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
         //  segment of the abandoned response and stops requesting media after the first chunk (stall).
         return new InitializationChunk(guard(dataSource, trackType, trackFormat), dataSpec, trackFormat,
                 trackSelectionReason, trackSelectionData, representationHolder.extractorWrapper,
-                /* stopAfterTracks= */ false);
+                /* stopAfterTracks= */ true);
     }
 
     protected Chunk newMediaChunk(
