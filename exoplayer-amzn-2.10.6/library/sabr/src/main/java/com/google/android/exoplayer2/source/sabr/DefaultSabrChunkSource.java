@@ -285,7 +285,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
 
         // FIX: honour short NextRequestPolicy.backoff_time_ms. Re-requesting right away makes the server
         // escalate the backoff (2 -> 4 -> 8 s) and finally fail with "sabr.no_video_selected".
-        // Returning without a chunk lets the loader poll again on the next continueLoading() call.
+        // Returning without a chunk plus retryDelayMs makes ChunkSampleStream poll again once the wait is over.
         // Only while the buffer is healthy, though: after a seek the server may still see stale
         // buffered ranges and ask to back off although the player is starving. With a low buffer
         // keep a 1 s spacing instead, so requests never hammer and playback never stalls on a wait.
@@ -297,6 +297,8 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
                     : Math.min(remainingMs, LOW_BUFFER_BACKOFF_WAIT_MS);
             if (waitMs > 0 && sabrStream.getMsSinceLastPolicy() < waitMs) {
                 logNoChunk("backoff wait " + waitMs + "ms", playbackPositionUs, loadPositionUs, queue);
+                // Nothing else wakes the loader up while no load is in flight; ask the stream to retry.
+                out.retryDelayMs = Math.max(50, waitMs - sabrStream.getMsSinceLastPolicy());
                 return;
             }
         }

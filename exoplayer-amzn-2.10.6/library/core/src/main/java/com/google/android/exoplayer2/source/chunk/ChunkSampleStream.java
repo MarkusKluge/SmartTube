@@ -15,6 +15,7 @@
  */
 package com.google.android.exoplayer2.source.chunk;
 
+import android.os.Handler;
 import androidx.annotation.Nullable;
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.Format;
@@ -80,6 +81,9 @@ public class ChunkSampleStream<T extends ChunkSource> implements SampleStream, S
   private long pendingResetPositionUs;
   private long lastSeekPositionUs;
   private int nextNotifyPrimaryFormatMediaChunkIndex;
+  private @Nullable Handler retryHandler;
+  private final Runnable retryLoadingRunnable = this::onRetryLoading;
+  private boolean released;
 
   /* package */ long decodeOnlyUntilPositionUs;
   /* package */ boolean loadingFinished;
@@ -347,6 +351,12 @@ public class ChunkSampleStream<T extends ChunkSource> implements SampleStream, S
     }
   }
 
+  private void onRetryLoading() {
+    if (!released && !loadingFinished && !loader.isLoading()) {
+      callback.onContinueLoadingRequested(this);
+    }
+  }
+
   /**
    * Releases the stream.
    *
@@ -368,6 +378,10 @@ public class ChunkSampleStream<T extends ChunkSource> implements SampleStream, S
    */
   public void release(@Nullable ReleaseCallback<T> callback) {
     this.releaseCallback = callback;
+    released = true;
+    if (retryHandler != null) {
+      retryHandler.removeCallbacks(retryLoadingRunnable);
+    }
     // Discard as much as we can synchronously.
     primarySampleQueue.discardToEnd();
     for (SampleQueue embeddedSampleQueue : embeddedSampleQueues) {
@@ -564,10 +578,24 @@ public class ChunkSampleStream<T extends ChunkSource> implements SampleStream, S
       chunkQueue = readOnlyMediaChunks;
       loadPositionUs = getLastMediaChunk().endTimeUs;
     }
+    if (retryHandler != null) {
+      retryHandler.removeCallbacks(retryLoadingRunnable);
+    }
     chunkSource.getNextChunk(positionUs, loadPositionUs, chunkQueue, nextChunkHolder);
     boolean endOfStream = nextChunkHolder.endOfStream;
     Chunk loadable = nextChunkHolder.chunk;
+    long retryDelayMs = nextChunkHolder.retryDelayMs;
     nextChunkHolder.clear();
+
+    // FIX: the source returned no chunk but wants to be asked again later (server backoff). The player
+    // only polls continueLoading() again after a load completes or while it is not loading, and with no
+    // load in flight neither happens: loading would stop until the buffer runs dry. Ask again ourselves.
+    if (!endOfStream && loadable == null && retryDelayMs > 0) {
+      if (retryHandler == null) {
+        retryHandler = new Handler();
+      }
+      retryHandler.postDelayed(retryLoadingRunnable, retryDelayMs);
+    }
 
     if (endOfStream) {
       pendingResetPositionUs = C.TIME_UNSET;

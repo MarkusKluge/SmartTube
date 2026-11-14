@@ -31,11 +31,18 @@ public final class ChunkHolder {
   public boolean endOfStream;
 
   /**
+   * If no chunk is returned and the stream has not ended, the delay in milliseconds after which the
+   * source wants to be asked again (e.g. a server-requested backoff). 0 means no retry is scheduled.
+   */
+  public long retryDelayMs;
+
+  /**
    * Clears the holder.
    */
   public void clear() {
     chunk = null;
     endOfStream = false;
+    retryDelayMs = 0;
   }
 
 }
