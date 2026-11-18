@@ -31,6 +31,18 @@ public class SabrCdnSelectorTest {
     }
 
     @Test
+    public void networkMarkedAsSlowIsReportedAndSkippedByHealthyUrl() {
+        assertFalse(SabrCdnSelector.isFailedUrl(PRIMARY_URL));
+
+        // What SlowMediaNetworkMonitor does with a network slower than real time (url with another rn)
+        SabrCdnSelector.markFailedUrl(PRIMARY_URL + "&rn=12");
+
+        assertTrue(SabrCdnSelector.isFailedUrl(PRIMARY_URL));
+        assertFalse(SabrCdnSelector.isFailedUrl(SECONDARY_URL));
+        assertEquals(SECONDARY_URL, SabrCdnSelector.getHealthyUrl(PRIMARY_URL));
+    }
+
+    @Test
     public void staleFailureRemainsRetryableAfterAnotherTrackAdvances() {
         SabrCdnSelector selector = new SabrCdnSelector(PRIMARY_URL);
 
