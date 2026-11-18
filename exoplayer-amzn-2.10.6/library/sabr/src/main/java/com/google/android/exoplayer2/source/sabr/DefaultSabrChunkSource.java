@@ -787,8 +787,8 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
         Log.e(TAG, "Load media chunk: track=" + trackType + ", init=" + initRequest + ", times=" + C.usToMs(startTimeUs) + ".." + C.usToMs(endTimeUs) + "ms, rn=" + manifest.getSabrRequestNumber()
                 + ", startTimeMs=" + startTimeMs + ", backoffTimeMs=" + sabrStream.getBackoffTimeMs());
         // FIX: a media network that trickles (e.g. 1 Mbit/s for a 9 Mbit/s format) never times out,
-        // the buffer just drains. Fail it like a read timeout when it delivers less than a quarter of the bitrate
-        // (the declared bitrate is a peak value, half of it is still playable).
+        // the buffer just drains. Fail it like a read timeout when it delivers less than half of the bitrate
+        // (the declared bitrate is a peak value), see guard().
         // Not for live: at the live edge the server holds the response until the next segment exists.
         LoadingStatus.setTrack(trackType, formatLabel(trackFormat));
         if (LoadingStatus.isActive()) {
@@ -902,12 +902,15 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
         // Only while the player starves (start, seek, nearly empty buffer). With a healthy buffer the server
         // paces the response on purpose; failing it then caused a player error and a rebuffer (test 2026-11-11).
         boolean starving = LoadingStatus.isActive() || lastBufferedDurationUs < GUARD_MAX_BUFFER_US;
-        long minBitsPerSecond = starving && trackFormat.bitrate > 0 && !manifest.dynamic ? trackFormat.bitrate / 4 : 0;
+        // LOCAL: half the (peak) bitrate after 3 s, so a slow network fails while the chunk is still cancelable
+        // (the player hasn't read from it yet) and the retry on the next network is seamless. Failing it later,
+        // e.g. after 11 s at a quarter of the bitrate, surfaced as a player error and a full reload (2026-11-18).
+        long minBitsPerSecond = starving && trackFormat.bitrate > 0 && !manifest.dynamic ? trackFormat.bitrate / 2 : 0;
         return new SlowNetworkGuardDataSource(dataSource, minBitsPerSecond, trackType);
     }
 
     private long lastNoChunkLogMs;
-    private static final long GUARD_MAX_BUFFER_US = 5_000_000;
+    private static final long GUARD_MAX_BUFFER_US = 10_000_000;
     private long lastBufferedDurationUs;
     @Nullable private String lastSlowSkippedUrl;
 

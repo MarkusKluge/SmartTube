@@ -24,9 +24,9 @@ import java.util.Map;
  */
 final class SlowNetworkGuardDataSource implements DataSource {
     /** Not enough data yet for a meaningful rate before this (includes connect and first byte). */
-    private static final long GRACE_MS = 6_000;
+    private static final long GRACE_MS = 3_000;
     /** Before the first frame every second counts: give up on a trickling network sooner. */
-    private static final long STARTUP_GRACE_MS = 3_000;
+    private static final long STARTUP_GRACE_MS = 2_000;
 
     /** Thrown when the response arrives too slowly. A read timeout, so the network failover kicks in. */
     static final class SlowNetworkException extends SocketTimeoutException {
