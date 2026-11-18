@@ -303,6 +303,17 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
             }
         }
 
+        // LOCAL: the player-side SlowMediaNetworkMonitor marks a network that delivers slower than real time
+        // (it answers, just too slowly to ever hit a timeout). Move the streams off it before the next request.
+        if (sabrStream != null) {
+            String currentUrl = sabrStream.getUrl();
+            if (currentUrl != null && !currentUrl.equals(lastSlowSkippedUrl)
+                    && com.google.android.exoplayer2.source.sabr.manifest.SabrCdnSelector.isFailedUrl(currentUrl)) {
+                lastSlowSkippedUrl = currentUrl;
+                manifest.maybeUseNextCdn(currentUrl);
+            }
+        }
+
         long bufferedDurationUs = loadPositionUs - playbackPositionUs;
         lastBufferedDurationUs = queue.isEmpty() ? 0 : bufferedDurationUs;
         long timeToLiveEdgeUs = resolveTimeToLiveEdgeUs(playbackPositionUs);
@@ -896,6 +907,7 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
     private long lastNoChunkLogMs;
     private static final long GUARD_MAX_BUFFER_US = 5_000_000;
     private long lastBufferedDurationUs;
+    @Nullable private String lastSlowSkippedUrl;
 
     /** DEBUG: why no chunk was returned (at most once per second per track). */
     private void logNoChunk(String reason, long playbackPositionUs, long loadPositionUs, List<? extends MediaChunk> queue) {

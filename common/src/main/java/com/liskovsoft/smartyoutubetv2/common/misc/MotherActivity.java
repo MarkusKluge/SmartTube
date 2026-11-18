@@ -29,6 +29,7 @@ import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerData;
 import com.liskovsoft.smartyoutubetv2.common.prefs.PlayerTweaksData;
 import com.liskovsoft.smartyoutubetv2.common.utils.Utils;
 import com.liskovsoft.youtubeapi.service.internal.MediaServiceData;
+import com.liskovsoft.googlecommon.common.helpers.ConnectionWarmup;
 import com.r0adkll.slidr.Slidr;
 import com.r0adkll.slidr.model.SlidrConfig;
 import com.r0adkll.slidr.model.SlidrListener;
@@ -220,6 +221,9 @@ public class MotherActivity extends FragmentActivity {
 
         // Restore this activity's screensaver policy after returning to the foreground.
         mScreensaverManager.resume();
+
+        // LOCAL: DNS + TLS to the API hosts ready before the first click, kept alive while in the foreground.
+        ConnectionWarmup.start();
     }
 
     @Override
@@ -228,6 +232,8 @@ public class MotherActivity extends FragmentActivity {
 
         // Stop managing the screensaver so a paused activity cannot keep the display awake.
         mScreensaverManager.suspend();
+
+        ConnectionWarmup.stop();
     }
 
     @Override

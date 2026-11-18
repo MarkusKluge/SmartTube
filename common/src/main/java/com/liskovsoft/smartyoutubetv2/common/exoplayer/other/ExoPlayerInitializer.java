@@ -73,6 +73,7 @@ public class ExoPlayerInitializer {
 
         applyPlaybackFixes(player);
         player.addAnalyticsListener(new PlayerMetricsLogger()); // LOCAL: diagnostics, log only
+        player.addAnalyticsListener(new SlowMediaNetworkMonitor()); // LOCAL: leave networks slower than real time
 
         setupAudioFocus(player);
 

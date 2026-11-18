@@ -134,6 +134,11 @@ public final class SabrCdnSelector {
         return healthyUrl != null ? healthyUrl : url;
     }
 
+    /** True when the network of this googlevideo url failed (or was too slow) recently. */
+    public static boolean isFailedUrl(@Nullable String url) {
+        return isFailed(extractNetwork(getHost(url)));
+    }
+
     /** Remember that the network of this googlevideo url doesn't answer. */
     public static void markFailedUrl(@Nullable String url) {
         markFailed(getHost(url));
