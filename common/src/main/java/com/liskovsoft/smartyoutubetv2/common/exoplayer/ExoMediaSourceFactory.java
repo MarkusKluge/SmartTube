@@ -63,6 +63,8 @@ public class ExoMediaSourceFactory {
     //private static ExoMediaSourceFactory sInstance;
     private static final int MAX_SEGMENTS_PER_LOAD = 1; // default - 1 (1-5)
     private static final int SABR_READ_TIMEOUT_MS = 4_000;
+    private static final int MEDIA_CONNECT_TIMEOUT_MS = 4_000;
+    private static final int MEDIA_PING_INTERVAL_MS = 5_000;
     private static final String USER_AGENT = DefaultHeaders.APP_USER_AGENT;
     @SuppressLint("StaticFieldLeak")
     private static final DefaultBandwidthMeter BANDWIDTH_METER = new DefaultBandwidthMeter();
@@ -289,7 +291,16 @@ public class ExoMediaSourceFactory {
      */
     private HttpDataSource.Factory buildOkHttpDataSourceFactory(DefaultBandwidthMeter bandwidthMeter, int readTimeoutMs) {
         OkHttpClient client = OkHttpManager.instance().getClient();
-        if (readTimeoutMs != client.readTimeoutMillis()) {
+        if (readTimeoutMs == SABR_READ_TIMEOUT_MS) {
+            // LOCAL: media requests. A media network IP that doesn't accept the connection hung the reload for the
+            // full 20 s connect timeout (2026-11-25); fail fast so OkHttp tries the next route / the next network.
+            // Pings detect a dead HTTP/2 connection, otherwise every new request queues on it until its timeout.
+            client = client.newBuilder()
+                    .readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS)
+                    .connectTimeout(MEDIA_CONNECT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                    .pingInterval(MEDIA_PING_INTERVAL_MS, TimeUnit.MILLISECONDS)
+                    .build(); // shares the connection pool
+        } else if (readTimeoutMs != client.readTimeoutMillis()) {
             client = client.newBuilder().readTimeout(readTimeoutMs, TimeUnit.MILLISECONDS).build(); // shares the connection pool
         }
         OkHttpDataSourceFactory dataSourceFactory = new OkHttpDataSourceFactory(client, USER_AGENT,

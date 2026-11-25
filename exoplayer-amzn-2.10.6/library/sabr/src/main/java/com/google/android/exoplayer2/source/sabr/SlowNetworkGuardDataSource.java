@@ -38,13 +38,20 @@ final class SlowNetworkGuardDataSource implements DataSource {
     private final DataSource upstream;
     private final long minBitsPerSecond;
     private final int trackType;
+    /** 0 = default grace; else check only after this long (the buffer covers the slow start). */
+    private final long graceOverrideMs;
     private long openTimeMs;
     private long bytesRead;
 
     SlowNetworkGuardDataSource(DataSource upstream, long minBitsPerSecond, int trackType) {
+        this(upstream, minBitsPerSecond, trackType, 0);
+    }
+
+    SlowNetworkGuardDataSource(DataSource upstream, long minBitsPerSecond, int trackType, long graceOverrideMs) {
         this.upstream = upstream;
         this.minBitsPerSecond = minBitsPerSecond;
         this.trackType = trackType;
+        this.graceOverrideMs = graceOverrideMs;
     }
 
     @Override
@@ -69,7 +76,7 @@ final class SlowNetworkGuardDataSource implements DataSource {
         }
 
         long elapsedMs = SystemClock.elapsedRealtime() - openTimeMs;
-        long graceMs = LoadingStatus.isActive() ? STARTUP_GRACE_MS : GRACE_MS;
+        long graceMs = graceOverrideMs > 0 ? graceOverrideMs : LoadingStatus.isActive() ? STARTUP_GRACE_MS : GRACE_MS;
 
         if (minBitsPerSecond > 0 && elapsedMs >= graceMs) {
             long bitsPerSecond = bytesRead * 8 * 1_000 / elapsedMs;

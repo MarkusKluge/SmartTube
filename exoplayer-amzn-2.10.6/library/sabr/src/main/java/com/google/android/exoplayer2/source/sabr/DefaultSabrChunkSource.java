@@ -906,8 +906,19 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
         // (the player hasn't read from it yet) and the retry on the next network is seamless. Failing it later,
         // e.g. after 11 s at a quarter of the bitrate, surfaced as a player error and a full reload (2026-11-18).
         long minBitsPerSecond = starving && trackFormat.bitrate > 0 && !manifest.dynamic ? trackFormat.bitrate / 2 : 0;
+
+        if (!starving && trackFormat.bitrate > 0 && !manifest.dynamic) {
+            // LOCAL: with a healthy buffer a network may still trickle for the whole chunk (2026-11-25: 2 Mbit/s for
+            // a 38 Mbit/s format, 45 s, buffer drained from 30 s to 0). Give it until the buffer is down to
+            // GUARD_MAX_BUFFER_US, then fail it at a quarter of the bitrate. A healthy but paced response is far faster.
+            long graceMs = Math.max(SLOW_BUFFERED_MIN_GRACE_MS, (lastBufferedDurationUs - GUARD_MAX_BUFFER_US) / 1_000);
+            return new SlowNetworkGuardDataSource(dataSource, trackFormat.bitrate / 4, trackType, graceMs);
+        }
+
         return new SlowNetworkGuardDataSource(dataSource, minBitsPerSecond, trackType);
     }
+
+    private static final long SLOW_BUFFERED_MIN_GRACE_MS = 8_000;
 
     private long lastNoChunkLogMs;
     private static final long GUARD_MAX_BUFFER_US = 10_000_000;

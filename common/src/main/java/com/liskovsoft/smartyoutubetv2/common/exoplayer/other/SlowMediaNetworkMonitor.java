@@ -21,8 +21,8 @@ import java.util.Locale;
  * LOCAL: moves playback off a media network that answers, but slower than real time.<br/>
  * Such a network never hits a read timeout (e.g. 1.5 Mbit/s for a 4 Mbit/s format), the buffer just drains
  * and playback pauses again and again. Measured per network as the real-time factor of the recent video
- * loads: seconds of media per second of loading. Below {@link #MIN_REALTIME_FACTOR} while the buffer is low,
- * the network is marked as failed; SABR ({@code DefaultSabrChunkSource}) and DASH ({@link CdnFailoverDataSource})
+ * loads: seconds of media per second of loading. Below {@link #MIN_REALTIME_FACTOR} while the buffer is low
+ * (or two loads in a row slower than real time with a full buffer), the network is marked as failed; SABR ({@code DefaultSabrChunkSource}) and DASH ({@link CdnFailoverDataSource})
  * share that list and send the next request to the next advertised network.
  */
 public final class SlowMediaNetworkMonitor implements AnalyticsListener {
@@ -35,6 +35,10 @@ public final class SlowMediaNetworkMonitor implements AnalyticsListener {
     /** Enough loading time for a meaningful factor (one slow request after a seek doesn't count). */
     private static final long MIN_WINDOW_LOAD_MS = 6_000;
     private static final int MAX_SAMPLES = 4;
+    /** With a healthy buffer: this many consecutive loads slower than real time ... */
+    private static final int HEALTHY_BUFFER_SAMPLES = 2;
+    /** ... and together below this factor. */
+    private static final float HEALTHY_BUFFER_MAX_FACTOR = 0.8f;
     private static final long MAX_SAMPLE_AGE_MS = 60_000;
     /** Give the next network time to prove itself before judging again. */
     private static final long COOLDOWN_MS = 15_000;
@@ -83,27 +87,47 @@ public final class SlowMediaNetworkMonitor implements AnalyticsListener {
             mSamples.removeFirst();
         }
 
-        if (now - mLastSwitchMs < COOLDOWN_MS || eventTime.totalBufferedDurationMs >= MAX_BUFFER_MS) {
+        if (now - mLastSwitchMs < COOLDOWN_MS) {
             return;
         }
 
         long totalMediaMs = 0;
         long totalLoadMs = 0;
 
-        for (Sample sample : mSamples) {
-            totalMediaMs += sample.mediaMs;
-            totalLoadMs += sample.loadMs;
-        }
+        if (eventTime.totalBufferedDurationMs >= MAX_BUFFER_MS) {
+            // Healthy buffer: only the last two loads, both slower than real time. Paced loads with a full buffer
+            // still run well above real time; this caught the 2026-11-25 stall 40 s before the buffer ran dry.
+            if (mSamples.size() < HEALTHY_BUFFER_SAMPLES) {
+                return;
+            }
 
-        if (totalLoadMs < MIN_WINDOW_LOAD_MS) {
-            return;
+            int skip = mSamples.size() - HEALTHY_BUFFER_SAMPLES;
+            for (Sample sample : mSamples) {
+                if (skip-- > 0) {
+                    continue;
+                }
+                if (sample.loadMs <= sample.mediaMs) {
+                    return;
+                }
+                totalMediaMs += sample.mediaMs;
+                totalLoadMs += sample.loadMs;
+            }
+
+            if ((float) totalMediaMs / totalLoadMs >= HEALTHY_BUFFER_MAX_FACTOR) {
+                return;
+            }
+        } else {
+            for (Sample sample : mSamples) {
+                totalMediaMs += sample.mediaMs;
+                totalLoadMs += sample.loadMs;
+            }
+
+            if (totalLoadMs < MIN_WINDOW_LOAD_MS || (float) totalMediaMs / totalLoadMs >= MIN_REALTIME_FACTOR) {
+                return;
+            }
         }
 
         float factor = (float) totalMediaMs / totalLoadMs;
-
-        if (factor >= MIN_REALTIME_FACTOR) {
-            return;
-        }
 
         String message = String.format(Locale.US, "Media network %s too slow: %.2fx real time (%d ms media in %d ms, buffered %d ms)",
                 host, factor, totalMediaMs, totalLoadMs, eventTime.totalBufferedDurationMs);
