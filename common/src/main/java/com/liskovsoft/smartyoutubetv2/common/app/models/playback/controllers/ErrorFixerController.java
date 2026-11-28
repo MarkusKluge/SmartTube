@@ -48,6 +48,19 @@ public class ErrorFixerController extends BasePlayerController implements OnLong
     }
 
     @Override
+    public void onTickle() {
+        if (getPlayer() == null) {
+            return;
+        }
+
+        Throwable error = getPlayer().getUnthrownError();
+
+        if (error != null) {
+            runEngineErrorAction(PlayerEventListener.ERROR_TYPE_UNEXPECTED, PlayerEventListener.RENDERER_INDEX_UNKNOWN, error);
+        }
+    }
+
+    @Override
     public void onLongBuffering() {
         if (getPlayer() == null) {
             return;
